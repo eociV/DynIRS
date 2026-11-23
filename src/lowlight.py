@@ -46,6 +46,7 @@ N_CLS = 5
 
 CONFIG = {
     "paired": False,          # train on 4-channel RGB+IR images (needed for TGD)
+    "load_ir": True,          # paired dataset loads IR pixels (needed only for TGD / teachers on IR)
     "ir_only_dir": None,      # <dir>/<id>.txt, normalized xywh IR-only boxes
     "ir_soft": None,          # weight in (0, 1]: keep IR-only boxes as soft labels (needs ir_soft_dir)
     "ir_soft_dir": None,      # <dir>/<id>.txt, "cls x y w h" IR-only boxes
@@ -187,6 +188,8 @@ class IRPairDataset(YOLODataset):
         super().__init__(*args, **kwargs)
 
     def load_image(self, i, rect_mode=True, resize_short=False):
+        if not self.cfg.get("load_ir", True):  # labels-only pairing: RGB pixels via Ultralytics (uses .npy cache)
+            return super().load_image(i, rect_mode, resize_short)
         im = self.ims[i]
         if im is not None:
             return im, self.im_hw0[i], self.im_hw[i]
