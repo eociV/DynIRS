@@ -21,7 +21,8 @@
 - ω-T raw = `c`; ω-TL raw = `c · (1 − v)`; S = ω-T values permuted across all IR-only train boxes with seed 0.
 - Teacher: YOLO26l from `yolo26l.pt`, IR frames, imgsz 640, batch 16, 50 epochs (30 if bench × 50 > 12 h), local GPU only.
 - Hardware: all YOLO26n runs and the teacher on the local RTX 5060 Ti; all v8n / 11n / v10n / 12n runs on T4.
-- Budget cut order if short: 12n, then v10n, then YOLO26n seed 2.
+- Seeds 0, 1, 2 for every model and configuration (54 student runs).
+- T4 runs are split across team accounts; queue files are per (model, seed). If T4 capacity is short, move whole models to the local GPU after the teacher; dropping 12n then v10n is the last resort.
 - Gate after YOLO26n seed 0: if neither T nor TL beats C on overall or night RGB AP50:95, stop and ask the user.
 - Commit after every task. Never push without the user asking.
 
@@ -34,7 +35,7 @@
 | `src/lowlight.py` | modify | Windows-safe IR path + CONFIG snapshot in the dataset; ω encode/decode; reading `ir_soft_w_dir`; `split_box_weights` |
 | `src/job_main.py` | modify | Windows-safe RAM log; `resolve_config` (auto paths, `auto:<V>` for ω dirs, sanity checks) |
 | `src/omega.py` | create | Offline signals (teacher conf, RGB visibility) and per-variant weight files |
-| `src/dyn_stats.py` | create | Paired t CI, Holm correction, paired image bootstrap of ΔAP |
+| `src/dyn_stats.py` | create | Seed-paired t CI and Holm correction |
 | `src/dyn_tables.py` | create | Scores every run's test predictions and writes the result tables |
 | `scripts/make_dyn_queues.py` | create | Generates every queue file of the matrix under `configs/queues/dyn/` |
 | `scripts/check_wsoft_loader.py` | create | Real-data check that encoded ω survives the training data loader |
@@ -860,8 +861,8 @@ def test_matrix_counts():
         f"dyn_26n_{c}_s{s}" for c in ("B", "M", "C", "T", "TL", "S") for s in (0, 1, 2))
     for m in ("v8n", "11n", "v10n", "12n"):
         assert sorted(n for n in students if n.startswith(f"dyn_{m}_")) == sorted(
-            f"dyn_{m}_{c}_s0" for c in ("C", "T", "TL"))
-    assert len(students) == 30
+            f"dyn_{m}_{c}_s{s}" for c in ("C", "T", "TL") for s in (0, 1, 2))
+    assert len(students) == 54
 
 
 def test_job_configs():
@@ -886,8 +887,10 @@ def test_job_configs():
 def test_t4_c_queues_need_no_teacher():
     q = mq.build()
     for m in ("v8n", "11n", "v10n", "12n"):
-        assert [j["name"] for j in q[f"t4_{m}_c"]] == [f"dyn_{m}_C_s0"]
-        assert [j["name"] for j in q[f"t4_{m}_ttl"]] == [f"dyn_{m}_T_s0", f"dyn_{m}_TL_s0"]
+        for s in (0, 1, 2):
+            assert [j["name"] for j in q[f"t4_{m}_s{s}_c"]] == [f"dyn_{m}_C_s{s}"]
+            assert [j["name"] for j in q[f"t4_{m}_s{s}_ttl"]] == [f"dyn_{m}_T_s{s}", f"dyn_{m}_TL_s{s}"]
+            assert all(j["train"]["seed"] == s for j in q[f"t4_{m}_s{s}_ttl"])
 ```
 
 - [ ] **Step 2: Run tests to verify they fail**
@@ -943,7 +946,7 @@ In `train(job)`, replace lines 167-173 (from `ll.CONFIG.update(...)` to the `ir_
 
   python scripts/make_dyn_queues.py [--epochs 40] [--imgsz 640]
 
-Queues: bench, smoke, smoke_t, teacher, local_26n_s0, local_26n_s12, t4_<model>_c, t4_<model>_ttl.
+Queues: bench, smoke, smoke_t, teacher, local_26n_s0, local_26n_s12, t4_<model>_s<seed>_c, t4_<model>_s<seed>_ttl.
 """
 import argparse
 import json
@@ -1005,8 +1008,9 @@ def build(epochs=40, imgsz=640):
     q["local_26n_s0"] = [student("26n", c, 0, "local", epochs, imgsz) for c in cfg26]
     q["local_26n_s12"] = [student("26n", c, s, "local", epochs, imgsz) for s in (1, 2) for c in cfg26]
     for m in ("v8n", "11n", "v10n", "12n"):
-        q[f"t4_{m}_c"] = [student(m, "C", 0, "t4", epochs, imgsz)]
-        q[f"t4_{m}_ttl"] = [student(m, c, 0, "t4", epochs, imgsz) for c in ("T", "TL")]
+        for s in (0, 1, 2):
+            q[f"t4_{m}_s{s}_c"] = [student(m, "C", s, "t4", epochs, imgsz)]
+            q[f"t4_{m}_s{s}_ttl"] = [student(m, c, s, "t4", epochs, imgsz) for c in ("T", "TL")]
     return q
 
 
@@ -1089,7 +1093,7 @@ if __name__ == "__main__":
 Run: `python -m pytest tests -v`
 Expected: all tests pass.
 Run: `python scripts/make_dyn_queues.py`
-Expected output lines include `local_26n_s0 6`, `local_26n_s12 12`, `t4_v8n_c 1`, `t4_v8n_ttl 2`, `teacher 1`.
+Expected output lines include `local_26n_s0 6`, `local_26n_s12 12`, `t4_v8n_s0_c 1`, `t4_v8n_s0_ttl 2`, `teacher 1`.
 
 - [ ] **Step 7: Commit**
 
@@ -1111,7 +1115,6 @@ git commit -m "feat: resolve per-box weight dirs in jobs; DynIRS queue generator
 - Produces:
   - `dyn_stats.paired_t(diffs: array) -> dict(mean, sd, n, t_ci: [lo, hi], p)`
   - `dyn_stats.holm(pvals: list[float]) -> list[float]` (adjusted, monotone, capped at 1)
-  - `dyn_stats.boot_diff(ap_a: array (B,), ap_b: array (B,)) -> dict(mean, ci: [lo, hi])` (percentile 95 %)
   - `python src/dyn_tables.py` writes `runs/analysis/dyn/scores.json` and `runs/analysis/dyn/tables.md`
 
 - [ ] **Step 1: Write the failing tests**
@@ -1136,13 +1139,6 @@ def test_paired_t_matches_scipy():
 def test_holm():
     assert np.allclose(ds.holm([0.01, 0.04, 0.03]), [0.03, 0.06, 0.06])
     assert np.allclose(ds.holm([0.5, 0.9]), [1.0, 1.0])
-
-
-def test_boot_diff():
-    a = np.full(1000, 30.0) + np.linspace(-1, 1, 1000)
-    b = np.full(1000, 29.0) + np.linspace(-1, 1, 1000)
-    r = ds.boot_diff(a, b)
-    assert np.isclose(r["mean"], 1.0) and np.allclose(r["ci"], [1.0, 1.0])
 ```
 
 - [ ] **Step 2: Run tests to verify they fail**
@@ -1153,7 +1149,7 @@ Expected: FAIL — `ModuleNotFoundError: No module named 'dyn_stats'`.
 - [ ] **Step 3: Implement `src/dyn_stats.py`**
 
 ```python
-"""Seed-paired t intervals, Holm correction and paired bootstrap differences for DynIRS."""
+"""Seed-paired t intervals and Holm correction for DynIRS."""
 import numpy as np
 from scipy import stats
 
@@ -1175,11 +1171,6 @@ def holm(pvals):
         run = max(run, (len(p) - rank) * p[i])
         adj[i] = min(run, 1.0)
     return adj.tolist()
-
-
-def boot_diff(ap_a, ap_b):
-    d = np.asarray(ap_a, float) - np.asarray(ap_b, float)
-    return {"mean": float(d.mean()), "ci": np.percentile(d, [2.5, 97.5]).tolist()}
 ```
 
 - [ ] **Step 4: Implement `src/dyn_tables.py`**
@@ -1187,16 +1178,15 @@ def boot_diff(ap_a, ap_b):
 ```python
 """Score every DynIRS run on the test split and write the result tables.
 
-  python src/dyn_tables.py [--boot 1000]
+  python src/dyn_tables.py
 
 Metrics: COCO AP50:95 (%) against RGB and IR labels, all images and night images; recall of IR-only
-vehicles (IoU >= 0.5, score >= 0.25, class-agnostic). YOLO26n: seed-paired differences with t 95 % CIs
-and Holm-adjusted p over the eight contrasts of each metric. Single-seed models: paired image bootstrap.
+vehicles (IoU >= 0.5, score >= 0.25, class-agnostic). For every model: seed-paired differences with
+t 95 % CIs and Holm-adjusted p over that model's contrasts, per metric.
 """
 import argparse
 import json
 import sys
-import zlib
 from pathlib import Path
 
 import numpy as np
@@ -1214,8 +1204,10 @@ MAN = ROOT / "splits"
 RUNS = ROOT / "runs" / "remote"
 OUT = ROOT / "runs" / "analysis" / "dyn"
 METRICS = [("rgb", "all"), ("rgb", "night"), ("ir", "all"), ("ir", "night")]
-CONTRASTS_26N = [("T", "C"), ("TL", "C"), ("TL", "T"), ("T", "S"), ("T", "M"), ("TL", "M"), ("C", "M"), ("C", "B")]
-CONTRASTS_1SEED = [("T", "C"), ("TL", "C"), ("TL", "T")]
+MODELS = ("26n", "v8n", "11n", "v10n", "12n")
+CONTRASTS = {"26n": [("T", "C"), ("TL", "C"), ("TL", "T"), ("T", "S"), ("T", "M"), ("TL", "M"), ("C", "M"),
+                     ("C", "B")]}
+DEFAULT_CONTRASTS = [("T", "C"), ("TL", "C"), ("TL", "T")]
 
 
 def preds_path(name):
@@ -1242,32 +1234,18 @@ def band_weights(ids, band):
     return np.ones(len(ids)) if band == "all" else ev.subset_weights(ids, (MAN / f"test_{band}.txt").read_text().split())
 
 
-def boot_weights(ids, band, n, key):
-    base = band_weights(ids, band)
-    idx = np.flatnonzero(base > 0)
-    rng = np.random.default_rng(zlib.crc32(key.encode()))
-    for _ in range(n):
-        w = np.zeros(len(ids))
-        np.add.at(w, idx[rng.integers(0, len(idx), len(idx))], 1)
-        yield w
-
-
-def score(name, nboot):
+def score(name):
     preds = json.load(open(preds_path(name)))
     r = {"ironly_recall": ironly_recall(preds)}
     for lab, band in METRICS:
         m = ev.Matched(D / lab / "test" / "boxes.json", preds)
         r[f"{lab}_{band}"] = 100 * m.ap(band_weights(m.ids, band))
-        if nboot:
-            r[f"{lab}_{band}_boot"] = [100 * m.ap(w) for w in boot_weights(m.ids, band, nboot, f"{lab}/{band}")]
         del m
     return r
 
 
 def main(argv=None):
-    ap = argparse.ArgumentParser()
-    ap.add_argument("--boot", type=int, default=1000)
-    a = ap.parse_args(argv)
+    argparse.ArgumentParser().parse_args(argv)
     OUT.mkdir(parents=True, exist_ok=True)
     cache = OUT / "scores.json"
     scores = json.loads(cache.read_text()) if cache.exists() else {}
@@ -1275,37 +1253,26 @@ def main(argv=None):
                    if not p.parent.name.startswith(("dyn_bench", "dyn_smoke")))
     for n in names:
         if n not in scores:
-            single = not n.startswith("dyn_26n_")
-            scores[n] = score(n, a.boot if single else 0)
+            scores[n] = score(n)
             cache.write_text(json.dumps(scores))
-            print(n, {k: round(v, 2) for k, v in scores[n].items() if not k.endswith("_boot")}, flush=True)
+            print(n, {k: round(v, 2) for k, v in scores[n].items()}, flush=True)
     lines = ["# DynIRS results (test split, AP50:95 %)", ""]
     keys = [f"{l}_{b}" for l, b in METRICS] + ["ironly_recall"]
     lines += ["| run | " + " | ".join(keys) + " |", "|---" * (len(keys) + 1) + "|"]
     for n in names:
         lines.append(f"| {n} | " + " | ".join(f"{scores[n][k]:.2f}" for k in keys) + " |")
-    lines += ["", "## YOLO26n, seed-paired differences (t 95 % CI, Holm p)", ""]
-    seeds = sorted({int(n.rsplit("_s", 1)[1]) for n in names if n.startswith("dyn_26n_")})
-    for k in keys:
-        rows = []
-        for x, y in CONTRASTS_26N:
-            pairs = [(f"dyn_26n_{x}_s{s}", f"dyn_26n_{y}_s{s}") for s in seeds]
-            pairs = [(p, q) for p, q in pairs if p in scores and q in scores]
-            if len(pairs) >= 2:
-                rows.append((f"{x}-{y}", ds.paired_t([scores[p][k] - scores[q][k] for p, q in pairs])))
-        for (lab, r), ph in zip(rows, ds.holm([r["p"] for _, r in rows]) if rows else []):
-            lines.append(f"- {k} {lab}: {r['mean']:+.2f} [{r['t_ci'][0]:+.2f}, {r['t_ci'][1]:+.2f}] "
-                         f"n={r['n']} p_holm={ph:.3f}")
-    lines += ["", "## Single-seed models, paired image bootstrap (95 % percentile CI)", ""]
-    for m in ("v8n", "11n", "v10n", "12n"):
-        for lab, band in METRICS:
-            k = f"{lab}_{band}"
-            for x, y in CONTRASTS_1SEED:
-                p, q = f"dyn_{m}_{x}_s0", f"dyn_{m}_{y}_s0"
-                if p in scores and q in scores and f"{k}_boot" in scores[p]:
-                    r = ds.boot_diff(scores[p][f"{k}_boot"], scores[q][f"{k}_boot"])
-                    d = scores[p][k] - scores[q][k]
-                    lines.append(f"- {m} {k} {x}-{y}: {d:+.2f} [{r['ci'][0]:+.2f}, {r['ci'][1]:+.2f}]")
+    for model in MODELS:
+        lines += ["", f"## {model}: seed-paired differences (t 95 % CI, Holm p)", ""]
+        for k in keys:
+            rows = []
+            for x, y in CONTRASTS.get(model, DEFAULT_CONTRASTS):
+                pairs = [(f"dyn_{model}_{x}_s{s}", f"dyn_{model}_{y}_s{s}") for s in (0, 1, 2)]
+                pairs = [(p, q) for p, q in pairs if p in scores and q in scores]
+                if len(pairs) >= 2:
+                    rows.append((f"{x}-{y}", ds.paired_t([scores[p][k] - scores[q][k] for p, q in pairs])))
+            for (lab, r), ph in zip(rows, ds.holm([r["p"] for _, r in rows]) if rows else []):
+                lines.append(f"- {k} {lab}: {r['mean']:+.2f} [{r['t_ci'][0]:+.2f}, {r['t_ci'][1]:+.2f}] "
+                             f"n={r['n']} p_holm={ph:.3f}")
     (OUT / "tables.md").write_text("\n".join(lines) + "\n")
     print("wrote", OUT / "tables.md")
 
@@ -1323,7 +1290,7 @@ Expected: all pass.
 
 ```bash
 git add src/dyn_stats.py src/dyn_tables.py tests/test_dyn_stats.py
-git commit -m "feat: DynIRS scoring tables (t CIs with Holm, paired bootstrap)"
+git commit -m "feat: DynIRS scoring tables (seed-paired t CIs with Holm)"
 ```
 
 ---
@@ -1464,7 +1431,7 @@ Add `kaggle_ds/` to `.gitignore`.
 ```python
 """Run one DynIRS queue inside a Kaggle or Colab session.
 
-  python scripts/kaggle_session.py --queue configs/queues/dyn/t4_v8n_c.json \
+  python scripts/kaggle_session.py --queue configs/queues/dyn/t4_v8n_s0_c.json \
       --data-in /kaggle/input/dynirs-dv --omega-in /kaggle/input/dynirs-omega \
       --prev-out /kaggle/input/<previous-session-output> --work /kaggle/working
 
@@ -1522,7 +1489,7 @@ Note: `run_queue.py` skips nothing on its own; a finished job is retrained if re
  "cells": [
   {"cell_type": "markdown", "metadata": {}, "source": ["# DynIRS runner\n", "Settings: GPU T4 x1, Internet on. Inputs: dynirs-code, dynirs-dv, (dynirs-omega), (previous output). Edit QUEUE / ONLY, Run all, then Save Version (Save & Run All) to keep /kaggle/working."]},
   {"cell_type": "code", "metadata": {}, "execution_count": null, "outputs": [], "source": [
-   "QUEUE = 'configs/queues/dyn/t4_v8n_c.json'\n",
+   "QUEUE = 'configs/queues/dyn/t4_v8n_s0_c.json'\n",
    "ONLY = ''  # e.g. 'dyn_v8n_C_s0'\n",
    "import os, subprocess, sys\n",
    "omega = '/kaggle/input/dynirs-omega' if os.path.exists('/kaggle/input/dynirs-omega') else None\n",
@@ -1601,13 +1568,14 @@ python scripts/pack_kaggle.py code --user <KAGGLE_USER>
 kaggle datasets create -p kaggle_ds/dynirs-dv --dir-mode zip
 kaggle datasets create -p kaggle_ds/dynirs-code --dir-mode zip
 ```
+Share the private datasets with each teammate who will run T4 sessions (dataset page → Settings → Sharing → add their Kaggle username). Each teammate imports `kaggle/runner.ipynb` into their own account.
 On Kaggle: new notebook from `kaggle/runner.ipynb`, attach `dynirs-code` and `dynirs-dv`, GPU T4 x1, Internet on, `QUEUE = 'configs/queues/dyn/bench.json'`, `ONLY = 'dyn_bench_26n'`. Record the epoch time.
 
 - [ ] **Step 3: Write `docs/superpowers/bench.md` and decide**
 
 Content: a table of measured seconds per epoch (local 26n, local 12n, local 26l, T4 26n), projected hours (an M run counts as 2 × a 26n run, its epochs hold twice the images) = epochs × sec / 3600 for each queue, total local hours, total T4 hours, and the decision:
 - Teacher epochs: 50 if 50 × sec(26l) ≤ 12 h, else 30 (change the default of `teacher(epochs=50)` to 30 in `make_dyn_queues.py` and rerun it; chunks become `[10, 20, None]` automatically).
-- T4 total ≤ 40 h (Kaggle 30 h + Colab ≈ 10 h) and local total ≤ 75 h; otherwise apply the cut order (12n, v10n, 26n seed 2) and record which runs were dropped.
+- Total T4 hours needed (36 runs) versus the T4 hours the team can provide (30 h per Kaggle account per week + Colab). If short, move whole models to the local GPU (after the teacher) until both sides fit; record the final model-to-hardware assignment. Drop 12n, then v10n, only if that still does not fit.
 Ask the user to confirm the decision before continuing.
 
 - [ ] **Step 4: Commit**
@@ -1623,7 +1591,7 @@ git commit -m "docs: benchmark results and locked experiment matrix"
 
 - [ ] **Step 1: Start the T4 B/C runs (no teacher needed)**
 
-Kaggle sessions, one queue each, in order: `t4_v8n_c.json`, `t4_11n_c.json`, `t4_v10n_c.json`, `t4_12n_c.json` (two queues may share one session if the bench numbers allow). Save Version at the end of each session.
+Hand out the `t4_<model>_s<seed>_c.json` queues (12 files) to teammates; record who runs which in `docs/superpowers/bench.md`. Each session: one or more queues via `--only` / `QUEUE`, then Save Version, then send the output folder `runs/remote/dyn_*` back.
 
 - [ ] **Step 2: Train the teacher locally**
 
@@ -1662,7 +1630,7 @@ kaggle datasets create -p kaggle_ds/dynirs-omega --dir-mode zip
 
 ```powershell
 python scripts/run_queue.py configs/queues/dyn/local_26n_s0.json
-python src/dyn_tables.py --boot 0
+python src/dyn_tables.py
 ```
 Read `runs/analysis/dyn/tables.md`. Gate: if neither `dyn_26n_T_s0` nor `dyn_26n_TL_s0` beats `dyn_26n_C_s0` on `rgb_all` or `rgb_night`, stop and report to the user with the table. Also report how M compares with C, T and TL (not a gate).
 
@@ -1677,7 +1645,7 @@ git commit -m "docs: teacher acceptance, omega stats and YOLO26n seed-0 gate"
 
 ### Task 11: Remaining runs and final tables
 
-- [ ] **Step 1: T4 runs** — Kaggle / Colab sessions, each with `dynirs-omega` attached, in this order: `t4_v8n_ttl`, `t4_11n_ttl`, `t4_v10n_ttl`, `t4_12n_ttl`. After each session, download `/kaggle/working/DynIRS/runs/remote/dyn_*` into the local `runs/remote/`.
+- [ ] **Step 1: T4 runs** — Kaggle / Colab sessions, each with `dynirs-omega` attached, the 12 `t4_<model>_s<seed>_ttl` queues, handed out the same way. After each session, download `/kaggle/working/DynIRS/runs/remote/dyn_*` into the local `runs/remote/`.
 
 - [ ] **Step 2: Local runs** — in parallel with Step 1:
 ```powershell
@@ -1686,10 +1654,10 @@ python scripts/run_queue.py configs/queues/dyn/local_26n_s12.json
 
 - [ ] **Step 3: Final tables**
 ```powershell
-python src/dyn_tables.py --boot 1000
+python src/dyn_tables.py
 ```
-This runs on the CPU and can take several hours (1000 bootstrap replicates × 4 metrics × 12 single-seed runs); results are cached in `scores.json`, so it can be stopped and restarted.
-Expected: `runs/analysis/dyn/tables.md` with 30 run rows (fewer if the cut order was applied), the YOLO26n contrasts with `n=3`, and bootstrap rows for each single-seed model.
+Scores are cached in `scores.json`, so it can be stopped and restarted.
+Expected: `runs/analysis/dyn/tables.md` with 54 run rows (fewer if models were dropped) and, for every model, contrasts with `n=3`.
 
 - [ ] **Step 4: Check the success criteria of the spec** (§1) against `tables.md` and write a short summary in `docs/superpowers/results.md`.
 

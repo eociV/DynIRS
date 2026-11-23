@@ -103,24 +103,30 @@ configurations of that model is not confounded by hardware.
 | Model | Seeds | Runs | Hardware |
 |---|---|---|---|
 | YOLO26n | 0, 1, 2 | 18 (B, M, C, T, TL, S) | user's RTX 5060 Ti |
-| YOLOv8n | 0 | 3 (C, T, TL) | T4 (Kaggle / Colab) |
-| YOLO11n | 0 | 3 | T4 |
-| YOLOv10n | 0 | 3 | T4 |
-| YOLO12n | 0 | 3 | T4 |
-| **Total** | | **30 students + 1 teacher** | |
+| YOLOv8n | 0, 1, 2 | 9 (C, T, TL) | T4 (Kaggle / Colab, team accounts) |
+| YOLO11n | 0, 1, 2 | 9 | T4 |
+| YOLOv10n | 0, 1, 2 | 9 | T4 |
+| YOLO12n | 0, 1, 2 | 9 | T4 |
+| **Total** | | **54 students + 1 teacher** | |
+
+T4 runs are split across the team's Kaggle / Colab accounts. Queue files are per (model, seed) so
+they can be handed out. A T4 on any account counts as the same GPU type. The final model-to-hardware
+assignment is locked after the benchmark and the teacher run: if T4 capacity is short, a whole model
+(all its configurations and seeds) moves to the local GPU.
 
 **Order, with gates:**
 
 0. Benchmark: time one epoch of 26n, 12n and 26l on the local GPU, and of 26n on a Kaggle T4. Lock
    the epoch count and the matrix from these numbers.
-1. Local GPU: teacher 26l. In parallel on T4: C for v8n, 11n, v10n and 12n, which needs no teacher.
+1. Local GPU: teacher 26l. In parallel on T4: C for v8n, 11n, v10n and 12n (all seeds), which needs no teacher.
 2. Local GPU: compute ω, then build and upload the Kaggle dataset with the weight files.
 3. Local GPU: 26n B / M / C / T / TL / S with seed 0. **Gate:** if neither T nor TL beats C on overall RGB
    AP50:95 or night RGB AP50:95, stop and review with the user before spending more compute.
-4. T4: T and TL for v8n, 11n, v10n and 12n.
+4. T4: T and TL for v8n, 11n, v10n and 12n (all seeds).
 5. Local GPU: 26n seeds 1 and 2.
 
-**If the budget runs short, cut in this order:** 12n, then v10n, then 26n seed 2.
+**If the budget runs short:** first move whole models to the local GPU once the teacher is done, then
+extend the schedule. Dropping runs is the last resort, in this order: 12n, then v10n.
 
 ## 5. Evaluation
 
@@ -130,8 +136,8 @@ configurations of that model is not confounded by hardware.
 - YOLO26n (3 seeds): seed-paired differences T − C, TL − C, TL − T, T − S, T − M, TL − M, C − M
   and C − B, with t confidence intervals
   and Holm correction, as in `make_rev1_tables.py`.
-- Single-seed models: image-level paired bootstrap (`rev1_boot.py`). The paper must state that
-  these models have one seed.
+- Other models (3 seeds each): seed-paired differences T − C, TL − C and TL − T, with t confidence
+  intervals and Holm correction within each model and metric.
 - Latency of the deployed models is unchanged, because ω exists only at training time. No new
   latency measurement is needed.
 
