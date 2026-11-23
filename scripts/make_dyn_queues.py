@@ -2,7 +2,7 @@
 
   python scripts/make_dyn_queues.py [--epochs 40] [--imgsz 640]
 
-Queues: bench, smoke, smoke_t, teacher, local_26n_s0, local_26n_s12, t4_<model>_s<seed>_c, t4_<model>_s<seed>_ttl.
+Queues: bench, smoke, smoke_tl, teacher, local_26n_s0, local_26n_s12, t4_<model>_s<seed>_c, t4_<model>_s<seed>_ttl.
 """
 import argparse
 import json
@@ -60,8 +60,8 @@ def build(epochs=40, imgsz=640):
         j.pop("predict")
     q["smoke"] = [student(m, "C", 0, "local", 1, imgsz, name=f"dyn_smoke_{m}", data="rgb_proxy", extra=proxy)
                   for m in MODELS]
-    q["smoke_t"] = [student("26n", "T", 0, "local", 1, imgsz, name="dyn_smoke_26n_T", data="rgb_proxy",
-                            extra=proxy)]
+    q["smoke_tl"] = [student(m, "TL", 0, "local", 1, imgsz, name=f"dyn_smoke_{m}_TL", data="rgb_proxy",
+                             extra=proxy) for m in MODELS]
     q["teacher"] = [teacher()]
     cfg26 = ("B", "M", "C", "T", "TL", "S")
     q["local_26n_s0"] = [student("26n", c, 0, "local", epochs, imgsz) for c in cfg26]

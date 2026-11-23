@@ -51,3 +51,13 @@ def test_t4_c_queues_need_no_teacher():
             assert [j["name"] for j in q[f"t4_{m}_s{s}_c"]] == [f"dyn_{m}_C_s{s}"]
             assert [j["name"] for j in q[f"t4_{m}_s{s}_ttl"]] == [f"dyn_{m}_T_s{s}", f"dyn_{m}_TL_s{s}"]
             assert all(j["train"]["seed"] == s for j in q[f"t4_{m}_s{s}_ttl"])
+
+
+def test_smoke_tl_covers_all_models_and_no_smoke_t():
+    q = mq.build()
+    assert "smoke_t" not in q
+    assert [j["name"] for j in q["smoke_tl"]] == [f"dyn_smoke_{m}_TL" for m in mq.MODELS]
+    for j in q["smoke_tl"]:
+        assert j["config"]["ir_soft_w_dir"] == "auto:TL" and j["train"]["data"] == "rgb_proxy"
+        assert j["train"]["epochs"] == 1 and j["proxy_fraction"] == 0.012
+    assert all(j["config"]["ir_soft"] == 0.3 for j in q["smoke"])

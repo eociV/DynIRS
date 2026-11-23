@@ -1,0 +1,207 @@
+[
+ {
+  "name": "dyn_smoke_26n_TL",
+  "kind": "train",
+  "splits": [
+   "train",
+   "val",
+   "test"
+  ],
+  "chunks": [
+   null
+  ],
+  "timeout": 0,
+  "train": {
+   "model": "yolo26n.pt",
+   "epochs": 1,
+   "imgsz": 640,
+   "batch": 32,
+   "seed": 0,
+   "deterministic": false,
+   "plots": false,
+   "data": "rgb_proxy",
+   "workers": 6,
+   "cache": "disk"
+  },
+  "config": {
+   "paired": true,
+   "load_ir": false,
+   "ir_only_dir": "auto",
+   "llsa": null,
+   "dnc_lambda": 0.0,
+   "tgd_lambda": 0.0,
+   "ir_soft_w_dir": "auto:TL"
+  },
+  "inputs": {},
+  "predict": {
+   "weights": "out/dyn_smoke_26n_TL/weights/best.pt",
+   "split": "test",
+   "imgsz": 640
+  },
+  "proxy_fraction": 0.012
+ },
+ {
+  "name": "dyn_smoke_v8n_TL",
+  "kind": "train",
+  "splits": [
+   "train",
+   "val",
+   "test"
+  ],
+  "chunks": [
+   null
+  ],
+  "timeout": 0,
+  "train": {
+   "model": "yolov8n.pt",
+   "epochs": 1,
+   "imgsz": 640,
+   "batch": 32,
+   "seed": 0,
+   "deterministic": false,
+   "plots": false,
+   "data": "rgb_proxy",
+   "workers": 6,
+   "cache": "disk"
+  },
+  "config": {
+   "paired": true,
+   "load_ir": false,
+   "ir_only_dir": "auto",
+   "llsa": null,
+   "dnc_lambda": 0.0,
+   "tgd_lambda": 0.0,
+   "ir_soft_w_dir": "auto:TL"
+  },
+  "inputs": {},
+  "predict": {
+   "weights": "out/dyn_smoke_v8n_TL/weights/best.pt",
+   "split": "test",
+   "imgsz": 640
+  },
+  "proxy_fraction": 0.012
+ },
+ {
+  "name": "dyn_smoke_11n_TL",
+  "kind": "train",
+  "splits": [
+   "train",
+   "val",
+   "test"
+  ],
+  "chunks": [
+   null
+  ],
+  "timeout": 0,
+  "train": {
+   "model": "yolo11n.pt",
+   "epochs": 1,
+   "imgsz": 640,
+   "batch": 32,
+   "seed": 0,
+   "deterministic": false,
+   "plots": false,
+   "data": "rgb_proxy",
+   "workers": 6,
+   "cache": "disk"
+  },
+  "config": {
+   "paired": true,
+   "load_ir": false,
+   "ir_only_dir": "auto",
+   "llsa": null,
+   "dnc_lambda": 0.0,
+   "tgd_lambda": 0.0,
+   "ir_soft_w_dir": "auto:TL"
+  },
+  "inputs": {},
+  "predict": {
+   "weights": "out/dyn_smoke_11n_TL/weights/best.pt",
+   "split": "test",
+   "imgsz": 640
+  },
+  "proxy_fraction": 0.012
+ },
+ {
+  "name": "dyn_smoke_v10n_TL",
+  "kind": "train",
+  "splits": [
+   "train",
+   "val",
+   "test"
+  ],
+  "chunks": [
+   null
+  ],
+  "timeout": 0,
+  "train": {
+   "model": "yolov10n.pt",
+   "epochs": 1,
+   "imgsz": 640,
+   "batch": 32,
+   "seed": 0,
+   "deterministic": false,
+   "plots": false,
+   "data": "rgb_proxy",
+   "workers": 6,
+   "cache": "disk"
+  },
+  "config": {
+   "paired": true,
+   "load_ir": false,
+   "ir_only_dir": "auto",
+   "llsa": null,
+   "dnc_lambda": 0.0,
+   "tgd_lambda": 0.0,
+   "ir_soft_w_dir": "auto:TL"
+  },
+  "inputs": {},
+  "predict": {
+   "weights": "out/dyn_smoke_v10n_TL/weights/best.pt",
+   "split": "test",
+   "imgsz": 640
+  },
+  "proxy_fraction": 0.012
+ },
+ {
+  "name": "dyn_smoke_12n_TL",
+  "kind": "train",
+  "splits": [
+   "train",
+   "val",
+   "test"
+  ],
+  "chunks": [
+   null
+  ],
+  "timeout": 0,
+  "train": {
+   "model": "yolo12n.pt",
+   "epochs": 1,
+   "imgsz": 640,
+   "batch": 32,
+   "seed": 0,
+   "deterministic": false,
+   "plots": false,
+   "data": "rgb_proxy",
+   "workers": 6,
+   "cache": "disk"
+  },
+  "config": {
+   "paired": true,
+   "load_ir": false,
+   "ir_only_dir": "auto",
+   "llsa": null,
+   "dnc_lambda": 0.0,
+   "tgd_lambda": 0.0,
+   "ir_soft_w_dir": "auto:TL"
+  },
+  "inputs": {},
+  "predict": {
+   "weights": "out/dyn_smoke_12n_TL/weights/best.pt",
+   "split": "test",
+   "imgsz": 640
+  },
+  "proxy_fraction": 0.012
+ }
+]
