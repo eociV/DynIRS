@@ -16,6 +16,32 @@ import sys
 from pathlib import Path
 
 
+def find_prev_runs(prev_out):
+    """The single runs/remote directory under a previous session's output (exit if none or several)."""
+    found = sorted(Path(prev_out).rglob("runs/remote"))
+    if not found:
+        sys.exit(f"--prev-out {prev_out}: no runs/remote directory found")
+    if len(found) > 1:
+        sys.exit(f"--prev-out {prev_out}: several runs/remote directories found, pick one:\n"
+                 + "\n".join(f"  {f.parent.parent}" for f in found))
+    return found[0]
+
+
+def describe_runs(remote):
+    """[(run name, state)] of the runs restored under a runs/remote directory."""
+    out = []
+    for d in sorted(p for p in Path(remote).iterdir() if p.is_dir()):
+        last = d / "ws" / "out" / d.name / "weights" / "last.pt"
+        if not last.exists():
+            out.append((d.name, "no last.pt"))
+            continue
+        import torch
+
+        ep = torch.load(last, map_location="cpu", weights_only=False)["epoch"]
+        out.append((d.name, "finished" if ep == -1 else f"epoch {ep + 1} done"))
+    return out
+
+
 def main(argv=None):
     ap = argparse.ArgumentParser()
     ap.add_argument("--queue", required=True)
@@ -40,10 +66,11 @@ def main(argv=None):
     if a.omega_in:
         shutil.copytree(Path(a.omega_in) / "ironly_w", dv / "proc" / "ironly_w", dirs_exist_ok=True)
     if a.prev_out:
-        prev = next(Path(a.prev_out).rglob("runs/remote"), None)
-        if prev:
-            shutil.copytree(prev, repo / "runs" / "remote", dirs_exist_ok=True)
-            print("restored", prev, flush=True)
+        prev = find_prev_runs(a.prev_out)
+        shutil.copytree(prev, repo / "runs" / "remote", dirs_exist_ok=True)
+        print("restored", prev, flush=True)
+        for name, state in describe_runs(prev):
+            print(f"  {name}: {state}", flush=True)
     subprocess.run([sys.executable, "-m", "pip", "install", "-q", "-r", str(repo / "requirements.txt")], check=True)
     env = dict(os.environ, DV_DATA=str(dv))
     subprocess.run([sys.executable, "scripts/warm_cache.py", "--splits", "train", "val", "--mods", *a.mods],
