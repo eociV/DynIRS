@@ -24,6 +24,7 @@
 - Seeds 0, 1, 2 for every model and configuration (54 student runs).
 - T4 runs are split across team accounts; queue files are per (model, seed). If T4 capacity is short, move whole models to the local GPU after the teacher; dropping 12n then v10n is the last resort.
 - Gate after YOLO26n seed 0: if neither T nor TL beats C on overall or night RGB AP50:95, stop and ask the user.
+- Training efficiency (spec §4b), identical for every configuration: `load_ir: false` for soft-label runs, pre-warmed `.npy` disk cache with `cache: "disk"`, `deterministic: False`, up to 2 lanes per GPU host (Kaggle T4 ×2: one run per GPU). Validation every epoch and `best.pt` stay.
 - Commit after every task. Never push without the user asking.
 
 ## File Structure
@@ -39,11 +40,13 @@
 | `src/dyn_tables.py` | create | Scores every run's test predictions and writes the result tables |
 | `scripts/make_dyn_queues.py` | create | Generates every queue file of the matrix under `configs/queues/dyn/` |
 | `scripts/check_wsoft_loader.py` | create | Real-data check that encoded ω survives the training data loader |
+| `scripts/warm_cache.py` | create | Pre-writes Ultralytics `.npy` disk-cache files atomically |
+| `scripts/run_lanes.py` | create | Runs one queue in N parallel processes, each pinned to a GPU |
 | `scripts/pack_kaggle.py` | create | Builds the Kaggle dataset folders (data, ω files, code) |
 | `scripts/kaggle_session.py` | create | Runs one queue inside a Kaggle / Colab session with output restore |
 | `kaggle/runner.ipynb` | create | One-cell notebook that calls `kaggle_session.py` |
 | `docs/superpowers/bench.md` | create (Task 9) | Measured epoch times and the locked matrix |
-| `tests/test_portability.py`, `tests/test_wsoft.py`, `tests/test_omega.py`, `tests/test_job_main.py`, `tests/test_queues.py`, `tests/test_dyn_stats.py`, `tests/test_pack_kaggle.py` | create | Unit tests |
+| `tests/test_portability.py`, `tests/test_wsoft.py`, `tests/test_omega.py`, `tests/test_job_main.py`, `tests/test_queues.py`, `tests/test_dyn_stats.py`, `tests/test_pack_kaggle.py`, `tests/test_throughput.py` | create | Unit tests |
 
 ---
 
@@ -872,11 +875,13 @@ def test_job_configs():
     mx = jobs["dyn_26n_M_s1"]
     assert mx["config"] == {} and mx["train"]["data"] == "mix"
     assert {k: v for k, v in mx["train"].items() if k != "data"} == {k: v for k, v in b["train"].items() if k != "data"}
-    assert c["config"]["ir_soft"] == 0.3 and c["config"]["paired"] is True
+    assert c["config"]["ir_soft"] == 0.3 and c["config"]["paired"] is True and c["config"]["load_ir"] is False
+    assert t["config"]["load_ir"] is False
     assert t["config"]["ir_soft_w_dir"] == "auto:T" and "ir_soft" not in t["config"]
     assert s["config"]["ir_soft_w_dir"] == "auto:S"
     for j in (b, c, t, s):
         assert j["train"]["epochs"] == 40 and j["train"]["imgsz"] == 640 and j["train"]["seed"] == 1
+        assert j["train"]["deterministic"] is False and j["train"]["cache"] == "disk"
         assert j["train"].get("distill_model") is None
         assert j["predict"]["split"] == "test" and "test" in j["splits"]
     assert jobs["dyn_v10n_TL_s0"]["train"]["model"] == "yolov10n.pt"
@@ -955,7 +960,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 OUT = ROOT / "configs" / "queues" / "dyn"
 MODELS = {"26n": "yolo26n.pt", "v8n": "yolov8n.pt", "11n": "yolo11n.pt", "v10n": "yolov10n.pt", "12n": "yolo12n.pt"}
-SOFT = {"paired": True, "ir_only_dir": "auto", "llsa": None, "dnc_lambda": 0.0, "tgd_lambda": 0.0}
+SOFT = {"paired": True, "load_ir": False, "ir_only_dir": "auto", "llsa": None, "dnc_lambda": 0.0, "tgd_lambda": 0.0}
 CONFIGS = {
     "B": {},
     "M": {},  # trained on data "mix" (RGB + IR train images), see DATA_KEY
@@ -965,7 +970,7 @@ CONFIGS = {
     "S": dict(SOFT, ir_soft_w_dir="auto:S"),
 }
 DATA_KEY = {"M": "mix"}
-HW = {"local": {"workers": 8, "cache": False}, "t4": {"workers": 4, "cache": False}}
+HW = {"local": {"workers": 6, "cache": "disk"}, "t4": {"workers": 2, "cache": "disk"}}  # t4: 2 lanes share 4 CPUs
 
 
 def student(model, cfg, seed, hw, epochs, imgsz, name=None, data=None, extra=None):
@@ -974,7 +979,7 @@ def student(model, cfg, seed, hw, epochs, imgsz, name=None, data=None, extra=Non
     job = {"name": name, "kind": "train", "splits": ["train", "val", "test"],
            "chunks": [epochs // 2, None] if epochs > 1 else [None], "timeout": 0,
            "train": {"model": MODELS[model], "epochs": epochs, "imgsz": imgsz, "batch": 32, "seed": seed,
-                     "plots": False, "data": data, **HW[hw]},
+                     "deterministic": False, "plots": False, "data": data, **HW[hw]},
            "config": dict(CONFIGS[cfg]), "inputs": {},
            "predict": {"weights": f"out/{name}/weights/best.pt", "split": "test", "imgsz": imgsz}}
     job.update(extra or {})
@@ -985,7 +990,7 @@ def teacher(epochs=50, name="dyn_teacher_26l"):
     return {"name": name, "kind": "train", "splits": ["train", "val", "test"],
             "chunks": list(range(10, epochs, 10)) + [None], "timeout": 0,
             "train": {"model": "yolo26l.pt", "epochs": epochs, "imgsz": 640, "batch": 16, "seed": 0,
-                      "plots": False, "data": "ir", **HW["local"]},
+                      "deterministic": False, "plots": False, "data": "ir", **HW["local"]},
             "config": {}, "inputs": {},
             "predict": {"weights": f"out/{name}/weights/best.pt", "split": "val", "imgsz": 640,
                         "data_root": "ir"}}
@@ -998,6 +1003,9 @@ def build(epochs=40, imgsz=640):
                   student("12n", "C", 0, "local", 1, imgsz, name="dyn_bench_12n"),
                   teacher(1, name="dyn_bench_teacher")]
     for j in q["bench"]:
+        j.pop("predict")
+    q["bench2"] = [student("26n", "C", 0, "local", 1, imgsz, name=f"dyn_bench2_{x}") for x in ("a", "b")]
+    for j in q["bench2"]:
         j.pop("predict")
     q["smoke"] = [student(m, "C", 0, "local", 1, imgsz, name=f"dyn_smoke_{m}", data="rgb_proxy", extra=proxy)
                   for m in MODELS]
@@ -1100,6 +1108,195 @@ Expected output lines include `local_26n_s0 6`, `local_26n_s12 12`, `t4_v8n_s0_c
 ```bash
 git add src/job_main.py scripts/make_dyn_queues.py scripts/check_wsoft_loader.py tests/test_job_main.py tests/test_queues.py configs/queues/dyn
 git commit -m "feat: resolve per-box weight dirs in jobs; DynIRS queue generator"
+```
+
+---
+
+### Task 5b: Training throughput (RGB-only loading, disk cache warm-up, lanes)
+
+**Files:**
+- Modify: `src/lowlight.py` (`IRPairDataset.load_image`)
+- Create: `scripts/warm_cache.py`, `scripts/run_lanes.py`
+- Test: `tests/test_throughput.py`
+
+**Interfaces:**
+- Consumes: `IRPairDataset.cfg` (Task 1); queue files (Task 5).
+- Produces:
+  - CONFIG key `"load_ir"` (default True). When False, `IRPairDataset.load_image` delegates to Ultralytics' loader (3 channels, reads `.npy` cache).
+  - `warm_cache.cache_one(path: str) -> int` (1 if written, 0 if present); `warm_cache.warm(files: list[str], workers: int) -> int`
+  - `run_lanes.split_lanes(names: list[str], n: int) -> list[list[str]]` (round-robin)
+  - CLI: `python scripts/warm_cache.py --splits train val --mods rgb [ir]`; `python scripts/run_lanes.py QUEUE --lanes N --gpus 0,1 [--only ...]`
+
+- [ ] **Step 1: Write the failing tests**
+
+`tests/test_throughput.py`:
+```python
+import sys
+from pathlib import Path
+
+import cv2
+import numpy as np
+
+import lowlight as ll
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
+import run_lanes  # noqa: E402
+import warm_cache  # noqa: E402
+
+
+def test_load_ir_false_uses_ultralytics_loader(monkeypatch):
+    called = {}
+
+    def fake(self, i, rect_mode=True, resize_short=False):
+        called["i"] = i
+        return "img", (1, 1), (1, 1)
+
+    monkeypatch.setattr(ll.YOLODataset, "load_image", fake)
+    ds = ll.IRPairDataset.__new__(ll.IRPairDataset)
+    ds.cfg = {"load_ir": False}
+    assert ds.load_image(3)[0] == "img" and called["i"] == 3
+
+
+def test_warm_cache_matches_cv2_and_is_idempotent(tmp_path):
+    img = (np.arange(64 * 80 * 3) % 251).astype(np.uint8).reshape(64, 80, 3)
+    f = tmp_path / "a.jpg"
+    cv2.imwrite(str(f), img)
+    assert warm_cache.cache_one(str(f)) == 1
+    assert np.array_equal(np.load(tmp_path / "a.npy"), cv2.imread(str(f)))
+    assert warm_cache.cache_one(str(f)) == 0
+    assert not list(tmp_path.glob("*.tmp*"))
+
+
+def test_split_lanes_round_robin():
+    assert run_lanes.split_lanes(["a", "b", "c", "d", "e"], 2) == [["a", "c", "e"], ["b", "d"]]
+    assert run_lanes.split_lanes(["a"], 2) == [["a"], []]
+```
+
+- [ ] **Step 2: Run tests to verify they fail**
+
+Run: `python -m pytest tests/test_throughput.py -v`
+Expected: FAIL — `ModuleNotFoundError: No module named 'run_lanes'`.
+
+- [ ] **Step 3: Implement RGB-only loading**
+
+In `src/lowlight.py`, in `CONFIG` after `"paired"` add:
+```python
+    "load_ir": True,          # paired dataset loads IR pixels (needed only for TGD / teachers on IR)
+```
+In `IRPairDataset.load_image`, insert as the first lines of the method body:
+```python
+        if not self.cfg.get("load_ir", True):  # labels-only pairing: RGB pixels via Ultralytics (uses .npy cache)
+            return super().load_image(i, rect_mode, resize_short)
+```
+
+- [ ] **Step 4: Implement `scripts/warm_cache.py`**
+
+```python
+"""Pre-write Ultralytics disk-cache files (<image>.npy = the decoded BGR image) atomically.
+
+  python scripts/warm_cache.py --splits train val --mods rgb [ir]
+
+Ultralytics 8.4 loads an existing <image>.npy instead of decoding the JPEG, whatever the cache mode.
+Writing the files once, before training, lets parallel runs share them without write races.
+"""
+import argparse
+import os
+from concurrent.futures import ProcessPoolExecutor
+from pathlib import Path
+
+import cv2
+import numpy as np
+
+ROOT = Path(__file__).resolve().parents[1]
+
+
+def cache_one(path):
+    f = Path(path)
+    npy = f.with_suffix(".npy")
+    if npy.exists() and npy.stat().st_mtime >= f.stat().st_mtime:
+        return 0
+    tmp = npy.with_name(npy.stem + ".tmp.npy")
+    np.save(tmp, cv2.imread(str(f), cv2.IMREAD_COLOR), allow_pickle=False)
+    os.replace(tmp, npy)
+    return 1
+
+
+def warm(files, workers):
+    with ProcessPoolExecutor(workers) as ex:
+        return sum(ex.map(cache_one, files, chunksize=64))
+
+
+def main(argv=None):
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--splits", nargs="+", default=["train", "val"])
+    ap.add_argument("--mods", nargs="+", default=["rgb"])
+    ap.add_argument("--workers", type=int, default=os.cpu_count())
+    a = ap.parse_args(argv)
+    proc = Path(os.environ.get("DV_DATA", ROOT / "data" / "dronevehicle")) / "proc"
+    files = [str(f) for m in a.mods for s in a.splits for f in sorted((proc / m / s / "images").glob("*.jpg"))]
+    print("cached", warm(files, a.workers), "of", len(files), flush=True)
+
+
+if __name__ == "__main__":
+    main()
+```
+
+- [ ] **Step 5: Implement `scripts/run_lanes.py`**
+
+```python
+"""Run one queue in N parallel lanes (processes), each pinned to a GPU.
+
+  python scripts/run_lanes.py QUEUE --lanes 2 --gpus 0,1 [--only NAME ...]
+
+Jobs are dealt round-robin to lanes; each lane runs scripts/run_queue.py --only <its jobs>.
+Use --gpus 0,0 to put two lanes on one GPU. Run scripts/warm_cache.py first.
+"""
+import argparse
+import json
+import os
+import subprocess
+import sys
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parents[1]
+
+
+def split_lanes(names, n):
+    return [names[i::n] for i in range(n)]
+
+
+def main(argv=None):
+    ap = argparse.ArgumentParser()
+    ap.add_argument("queue")
+    ap.add_argument("--lanes", type=int, default=1)
+    ap.add_argument("--gpus", default="0")
+    ap.add_argument("--only", nargs="*")
+    a = ap.parse_args(argv)
+    names = [j["name"] for j in json.loads(Path(a.queue).read_text()) if not a.only or j["name"] in a.only]
+    gpus = a.gpus.split(",")
+    procs = []
+    for k, lane in enumerate(split_lanes(names, a.lanes)):
+        if lane:
+            env = dict(os.environ, CUDA_VISIBLE_DEVICES=gpus[k % len(gpus)])
+            procs.append(subprocess.Popen([sys.executable, str(ROOT / "scripts" / "run_queue.py"), a.queue,
+                                           "--only", *lane], cwd=ROOT, env=env))
+    return max(p.wait() for p in procs) if procs else 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
+```
+
+- [ ] **Step 6: Run tests to verify they pass**
+
+Run: `python -m pytest tests -v`
+Expected: all pass.
+
+- [ ] **Step 7: Commit**
+
+```bash
+git add src/lowlight.py scripts/warm_cache.py scripts/run_lanes.py tests/test_throughput.py
+git commit -m "perf: RGB-only loading for soft-label runs, disk-cache warm-up, parallel lanes"
 ```
 
 ---
@@ -1381,7 +1578,7 @@ def pack_data(proc, out, slug, user):
     dst = d / "proc"
     dst.mkdir()
     for sub in ("rgb", "ir", "ironly", "ironly_cls", "stats"):
-        shutil.copytree(Path(proc) / sub, dst / sub)
+        shutil.copytree(Path(proc) / sub, dst / sub, ignore=shutil.ignore_patterns("*.npy", "*.cache"))
     for f in Path(proc).glob(".ready_*"):
         shutil.copy2(f, dst / f.name)
     _meta(d, slug, user)
@@ -1456,6 +1653,9 @@ def main(argv=None):
     ap.add_argument("--work", required=True)
     ap.add_argument("--code-in", default=str(Path(__file__).resolve().parents[1]))
     ap.add_argument("--only", nargs="*")
+    ap.add_argument("--lanes", type=int, default=2)
+    ap.add_argument("--gpus", default="0,1")
+    ap.add_argument("--mods", nargs="+", default=["rgb"], help="modalities to pre-cache (add ir for M or teacher)")
     a = ap.parse_args(argv)
     work = Path(a.work)
     repo = work / "DynIRS"
@@ -1473,7 +1673,10 @@ def main(argv=None):
             print("restored", prev, flush=True)
     subprocess.run([sys.executable, "-m", "pip", "install", "-q", "-r", str(repo / "requirements.txt")], check=True)
     env = dict(os.environ, DV_DATA=str(dv))
-    cmd = [sys.executable, "scripts/run_queue.py", a.queue] + (["--only", *a.only] if a.only else [])
+    subprocess.run([sys.executable, "scripts/warm_cache.py", "--splits", "train", "val", "--mods", *a.mods],
+                   cwd=repo, env=env, check=True)
+    cmd = [sys.executable, "scripts/run_lanes.py", a.queue, "--lanes", str(a.lanes), "--gpus", a.gpus]
+    cmd += ["--only", *a.only] if a.only else []
     return subprocess.run(cmd, cwd=repo, env=env).returncode
 
 
@@ -1487,7 +1690,7 @@ Note: `run_queue.py` skips nothing on its own; a finished job is retrained if re
 ```json
 {
  "cells": [
-  {"cell_type": "markdown", "metadata": {}, "source": ["# DynIRS runner\n", "Settings: GPU T4 x1, Internet on. Inputs: dynirs-code, dynirs-dv, (dynirs-omega), (previous output). Edit QUEUE / ONLY, Run all, then Save Version (Save & Run All) to keep /kaggle/working."]},
+  {"cell_type": "markdown", "metadata": {}, "source": ["# DynIRS runner\n", "Settings: GPU T4 x2, Internet on. Inputs: dynirs-code, dynirs-dv, (dynirs-omega), (previous output). Edit QUEUE / ONLY, Run all, then Save Version (Save & Run All) to keep /kaggle/working."]},
   {"cell_type": "code", "metadata": {}, "execution_count": null, "outputs": [], "source": [
    "QUEUE = 'configs/queues/dyn/t4_v8n_s0_c.json'\n",
    "ONLY = ''  # e.g. 'dyn_v8n_C_s0'\n",
@@ -1536,6 +1739,13 @@ Expected: the first job downloads and prepares train/val/test (log lines `prepar
 If data preparation fails inside `dv_prep.prepare` with a multiprocessing error (Windows starts worker processes by spawn), rerun once with `workers=1` by changing `workers=os.cpu_count()` to `workers=1 if os.name == "nt" else os.cpu_count()` in `src/job_main.py:78`, and commit that change.
 If `yolov10n.pt` fails to download, fetch it from the Ultralytics assets release into `weights/yolov10n.pt` and set `MODELS["v10n"] = "inputs/yolov10n.pt"` with `inputs: {"inputs/yolov10n.pt": "weights/yolov10n.pt"}` in `make_dyn_queues.py`, regenerate, rerun.
 
+- [ ] **Step 1b: Warm the disk cache** (after the data exist)
+
+```powershell
+python scripts/warm_cache.py --splits train val --mods rgb ir
+```
+Expected: `cached N of N` on the first run (N ≈ 2 × (17,990 + 1,469)), `cached 0 of N` when rerun.
+
 - [ ] **Step 2: Verify the data matches the published splits**
 
 ```powershell
@@ -1555,13 +1765,16 @@ Expected: the two numbers on each line are equal.
 - [ ] **Step 1: Benchmark on the local GPU**
 
 ```powershell
+python scripts/warm_cache.py --splits train val --mods rgb ir
 python scripts/run_queue.py configs/queues/dyn/bench.json
+python scripts/run_lanes.py configs/queues/dyn/bench2.json --lanes 2 --gpus 0,0
 ```
-For each of `dyn_bench_26n`, `dyn_bench_12n`, `dyn_bench_teacher`, read the epoch duration from `runs/remote/<name>/ws/out/<name>/train.log` (the `trained <name> epochs_done 1 secs N` line) and the peak memory shown in the progress bar (`GPU_mem`).
+While `bench2` runs, record peak RAM (`Get-Process python | Measure-Object WorkingSet64 -Sum`, sampled a few times) and compare the two lanes' epoch times with `dyn_bench_26n`. Use 2 local lanes only if 2 / (lane epoch time) ≥ 1.25 / (single epoch time) and peak RAM < 14 GB.
+For each of `dyn_bench_26n`, `dyn_bench_12n`, `dyn_bench_teacher`, `dyn_bench2_a`, `dyn_bench2_b`, read the epoch duration from `runs/remote/<name>/ws/out/<name>/train.log` (the `trained <name> epochs_done 1 secs N` line) and the peak memory shown in the progress bar (`GPU_mem`).
 
 - [ ] **Step 2: Benchmark on a Kaggle T4**
 
-Pack and upload code and data (needs `~/.kaggle/kaggle.json` from the user's Kaggle account settings):
+Pack and upload code and data (needs `~/.kaggle/kaggle.json` from the user's Kaggle account settings). Do not pack the `.npy` cache files (`pack_data` skips `*.npy` and label `*.cache` files):
 ```powershell
 python scripts/pack_kaggle.py data --user <KAGGLE_USER>
 python scripts/pack_kaggle.py code --user <KAGGLE_USER>
@@ -1569,7 +1782,7 @@ kaggle datasets create -p kaggle_ds/dynirs-dv --dir-mode zip
 kaggle datasets create -p kaggle_ds/dynirs-code --dir-mode zip
 ```
 Share the private datasets with each teammate who will run T4 sessions (dataset page → Settings → Sharing → add their Kaggle username). Each teammate imports `kaggle/runner.ipynb` into their own account.
-On Kaggle: new notebook from `kaggle/runner.ipynb`, attach `dynirs-code` and `dynirs-dv`, GPU T4 x1, Internet on, `QUEUE = 'configs/queues/dyn/bench.json'`, `ONLY = 'dyn_bench_26n'`. Record the epoch time.
+On Kaggle: new notebook from `kaggle/runner.ipynb`, attach `dynirs-code` and `dynirs-dv`, GPU T4 x2, Internet on, `QUEUE = 'configs/queues/dyn/bench2.json'` (two lanes, one per GPU). Record the warm-cache time, both lanes' epoch times and `df -h /tmp` (need ≥ 25 GB free for data + RGB cache; if not, set `HW["t4"]["cache"] = False` and skip warm_cache on T4).
 
 - [ ] **Step 3: Write `docs/superpowers/bench.md` and decide**
 
@@ -1629,7 +1842,7 @@ kaggle datasets create -p kaggle_ds/dynirs-omega --dir-mode zip
 - [ ] **Step 6: YOLO26n seed 0 (local) — the gate**
 
 ```powershell
-python scripts/run_queue.py configs/queues/dyn/local_26n_s0.json
+python scripts/run_lanes.py configs/queues/dyn/local_26n_s0.json --lanes <1 or 2 from bench.md> --gpus 0,0
 python src/dyn_tables.py
 ```
 Read `runs/analysis/dyn/tables.md`. Gate: if neither `dyn_26n_T_s0` nor `dyn_26n_TL_s0` beats `dyn_26n_C_s0` on `rgb_all` or `rgb_night`, stop and report to the user with the table. Also report how M compares with C, T and TL (not a gate).
@@ -1649,7 +1862,7 @@ git commit -m "docs: teacher acceptance, omega stats and YOLO26n seed-0 gate"
 
 - [ ] **Step 2: Local runs** — in parallel with Step 1:
 ```powershell
-python scripts/run_queue.py configs/queues/dyn/local_26n_s12.json
+python scripts/run_lanes.py configs/queues/dyn/local_26n_s12.json --lanes <1 or 2 from bench.md> --gpus 0,0
 ```
 
 - [ ] **Step 3: Final tables**

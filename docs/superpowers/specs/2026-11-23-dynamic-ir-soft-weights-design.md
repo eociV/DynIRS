@@ -67,8 +67,7 @@ any difference comes only from how the weight is redistributed across boxes. Hyp
   DroneVehicle train split.
 - Settings: 640 px, batch 16, 50 epochs. Reduce to 30 epochs if the measured epoch time × 50
   exceeds 12 h.
-- Hardware: the user's RTX 5060 Ti (16 GB). Use `cache: false` or `"disk"`, because the machine has
-  16 GB of RAM.
+- Hardware: the user's RTX 5060 Ti (16 GB). Disk cache (§4b); RAM cache is not possible with 16 GB.
 - Acceptance check: IR val AP50:95 must be clearly higher than the YOLO26n IR teacher (`t_ir`)
   reported in the original paper (640 px, 60 epochs). The old teacher is not retrained. If the new
   teacher is not better, stop and review with the user.
@@ -127,6 +126,25 @@ assignment is locked after the benchmark and the teacher run: if T4 capacity is 
 
 **If the budget runs short:** first move whole models to the local GPU once the teacher is done, then
 extend the schedule. Dropping runs is the last resort, in this order: 12n, then v10n.
+
+## 4b. Training efficiency
+
+Training is bound by data loading (two JPEG decodes per sample, nano models, 4 CPU cores on Kaggle).
+The following are applied identically to every configuration and do not change what is learned:
+
+1. **RGB-only pixels for soft-label runs.** C / T / TL / S use the paired dataset only to inject
+   IR-only boxes; without TGD the IR pixels are discarded. A `load_ir: false` option loads RGB
+   pixels only (through Ultralytics' own loader); IR-only labels are still added.
+2. **Disk cache.** Decoded images are pre-written once per machine as `<image>.npy` (exactly what
+   Ultralytics' `cache: "disk"` writes, written atomically by `scripts/warm_cache.py`). Ultralytics
+   reads an existing `.npy` instead of decoding the JPEG. About 18 GB per modality for train.
+3. **Two runs per Kaggle session on T4 ×2**, one run per GPU (`scripts/run_lanes.py`).
+4. **Two runs at once on the local GPU** if the benchmark shows a throughput gain of at least 25 %
+   and RAM stays below 14 GB; otherwise one.
+5. **`deterministic: False`** for every run. Seeds stay fixed; runs are no longer bit-reproducible,
+   which does not affect the seed-paired statistics.
+
+Model selection is unchanged: validation every epoch and `best.pt`, as in the original paper.
 
 ## 5. Evaluation
 
