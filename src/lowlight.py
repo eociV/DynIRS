@@ -119,6 +119,14 @@ def luminance(x):
     return (0.299 * x[:, 0] + 0.587 * x[:, 1] + 0.114 * x[:, 2]).mean((1, 2)) * 255
 
 
+def ir_path(rgb_path):
+    """Path of the IR frame paired with an RGB frame: the last `rgb` path component becomes `ir`."""
+    parts = list(Path(rgb_path).parts)
+    i = len(parts) - 1 - parts[::-1].index("rgb")
+    parts[i] = "ir"
+    return str(Path(*parts))
+
+
 # --------------------------------------------------------------------- paired dataset
 
 class _RGBOnly:
@@ -142,13 +150,19 @@ class IRPairDataset(YOLODataset):
     """YOLO dataset that loads BGR + IR as one 4-channel image so geometric
     augmentation is identical for both, and appends IR-only boxes as IGNORE_CLS."""
 
+    def __init__(self, *args, **kwargs):
+        # DataLoader workers on Windows start by spawn and re-import this module with the default
+        # CONFIG; the dataset is pickled to them, so it must carry its own copy.
+        self.cfg = dict(CONFIG)
+        super().__init__(*args, **kwargs)
+
     def load_image(self, i, rect_mode=True, resize_short=False):
         im = self.ims[i]
         if im is not None:
             return im, self.im_hw0[i], self.im_hw[i]
         f = self.im_files[i]
         rgb = cv2.imread(f, cv2.IMREAD_COLOR)
-        ir = cv2.imread(f.replace("/rgb/", "/ir/"), cv2.IMREAD_GRAYSCALE)
+        ir = cv2.imread(ir_path(f), cv2.IMREAD_GRAYSCALE)
         if rgb is None or ir is None or rgb.shape[:2] != ir.shape[:2]:
             raise FileNotFoundError(f"missing or mismatched RGB/IR pair for {f}")
         im = np.dstack([rgb, ir])
@@ -166,23 +180,23 @@ class IRPairDataset(YOLODataset):
         return im, (h0, w0), im.shape[:2]
 
     def update_labels_info(self, label):
-        if CONFIG.get("pseudo"):
+        if self.cfg.get("pseudo"):
             if not hasattr(self, "_pseudo"):
-                self._pseudo = json.loads(Path(CONFIG["pseudo_file"]).read_text())
+                self._pseudo = json.loads(Path(self.cfg["pseudo_file"]).read_text())
             a = np.array(self._pseudo.get(Path(label["im_file"]).stem, []), dtype=np.float32).reshape(-1, 5)
             if len(a):
                 label["bboxes"] = np.concatenate([label["bboxes"], a[:, 1:5]], 0)
                 label["cls"] = np.concatenate(
                     [label["cls"], (a[:, :1] + PSEUDO_OFFSET).astype(label["cls"].dtype)], 0)
-        if CONFIG.get("ir_soft"):
-            p = Path(CONFIG["ir_soft_dir"]) / f"{Path(label['im_file']).stem}.txt"
+        if self.cfg.get("ir_soft"):
+            p = Path(self.cfg["ir_soft_dir"]) / f"{Path(label['im_file']).stem}.txt"
             if p.exists() and p.stat().st_size:
                 a = np.loadtxt(p, ndmin=2, dtype=np.float32)
                 label["bboxes"] = np.concatenate([label["bboxes"], a[:, 1:5]], 0)
                 label["cls"] = np.concatenate(
                     [label["cls"], (a[:, :1] + SOFT_OFFSET).astype(label["cls"].dtype)], 0)
             return super().update_labels_info(label)
-        d = CONFIG.get("ir_only_dir")
+        d = self.cfg.get("ir_only_dir")
         if d:
             p = Path(d) / f"{Path(label['im_file']).stem}.txt"
             if p.exists() and p.stat().st_size:

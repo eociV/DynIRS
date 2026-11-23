@@ -45,9 +45,11 @@ def ensure_env():
         subprocess.run([sys.executable, "-m", "pip", "install", "-q", f"ultralytics=={ULTRA}",
                         "pycocotools", "albumentations"], check=True)
     import torch
+    import psutil
+
     log("torch", torch.__version__, "cuda", torch.cuda.is_available(),
         torch.cuda.get_device_name(0) if torch.cuda.is_available() else "-",
-        "cpus", os.cpu_count(), "ram_gb", round(os.sysconf("SC_PAGE_SIZE") * os.sysconf("SC_PHYS_PAGES") / 1e9, 1))
+        "cpus", os.cpu_count(), "ram_gb", round(psutil.virtual_memory().total / 1e9, 1))
 
 
 def _hash_labels(split):
