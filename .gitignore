@@ -6,3 +6,4 @@ runs/
 weights/*.pt
 *.pt
 *.pth
+kaggle_ds/
