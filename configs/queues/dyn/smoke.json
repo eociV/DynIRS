@@ -20,7 +20,7 @@
    "deterministic": false,
    "plots": false,
    "data": "rgb_proxy",
-   "workers": 6,
+   "workers": 4,
    "cache": "disk"
   },
   "config": {
@@ -62,7 +62,7 @@
    "deterministic": false,
    "plots": false,
    "data": "rgb_proxy",
-   "workers": 6,
+   "workers": 4,
    "cache": "disk"
   },
   "config": {
@@ -104,7 +104,7 @@
    "deterministic": false,
    "plots": false,
    "data": "rgb_proxy",
-   "workers": 6,
+   "workers": 4,
    "cache": "disk"
   },
   "config": {
@@ -120,90 +120,6 @@
   "inputs": {},
   "predict": {
    "weights": "out/dyn_smoke_11n/weights/best.pt",
-   "split": "test",
-   "imgsz": 640
-  },
-  "proxy_fraction": 0.012
- },
- {
-  "name": "dyn_smoke_v10n",
-  "kind": "train",
-  "splits": [
-   "train",
-   "val",
-   "test"
-  ],
-  "chunks": [
-   null
-  ],
-  "timeout": 0,
-  "train": {
-   "model": "yolov10n.pt",
-   "epochs": 1,
-   "imgsz": 640,
-   "batch": 32,
-   "seed": 0,
-   "deterministic": false,
-   "plots": false,
-   "data": "rgb_proxy",
-   "workers": 6,
-   "cache": "disk"
-  },
-  "config": {
-   "paired": true,
-   "load_ir": false,
-   "ir_only_dir": "auto",
-   "llsa": null,
-   "dnc_lambda": 0.0,
-   "tgd_lambda": 0.0,
-   "ir_soft": 0.3,
-   "ir_soft_dir": "auto"
-  },
-  "inputs": {},
-  "predict": {
-   "weights": "out/dyn_smoke_v10n/weights/best.pt",
-   "split": "test",
-   "imgsz": 640
-  },
-  "proxy_fraction": 0.012
- },
- {
-  "name": "dyn_smoke_12n",
-  "kind": "train",
-  "splits": [
-   "train",
-   "val",
-   "test"
-  ],
-  "chunks": [
-   null
-  ],
-  "timeout": 0,
-  "train": {
-   "model": "yolo12n.pt",
-   "epochs": 1,
-   "imgsz": 640,
-   "batch": 32,
-   "seed": 0,
-   "deterministic": false,
-   "plots": false,
-   "data": "rgb_proxy",
-   "workers": 6,
-   "cache": "disk"
-  },
-  "config": {
-   "paired": true,
-   "load_ir": false,
-   "ir_only_dir": "auto",
-   "llsa": null,
-   "dnc_lambda": 0.0,
-   "tgd_lambda": 0.0,
-   "ir_soft": 0.3,
-   "ir_soft_dir": "auto"
-  },
-  "inputs": {},
-  "predict": {
-   "weights": "out/dyn_smoke_12n/weights/best.pt",
    "split": "test",
    "imgsz": 640
   },

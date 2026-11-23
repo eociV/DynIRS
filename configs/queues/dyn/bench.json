@@ -20,7 +20,7 @@
    "deterministic": false,
    "plots": false,
    "data": "rgb",
-   "workers": 6,
+   "workers": 4,
    "cache": "disk"
   },
   "config": {
@@ -36,7 +36,7 @@
   "inputs": {}
  },
  {
-  "name": "dyn_bench_12n",
+  "name": "dyn_bench_11n",
   "kind": "train",
   "splits": [
    "train",
@@ -48,7 +48,7 @@
   ],
   "timeout": 0,
   "train": {
-   "model": "yolo12n.pt",
+   "model": "yolo11n.pt",
    "epochs": 1,
    "imgsz": 640,
    "batch": 32,
@@ -56,7 +56,7 @@
    "deterministic": false,
    "plots": false,
    "data": "rgb",
-   "workers": 6,
+   "workers": 4,
    "cache": "disk"
   },
   "config": {
@@ -92,7 +92,7 @@
    "deterministic": false,
    "plots": false,
    "data": "ir",
-   "workers": 6,
+   "workers": 4,
    "cache": "disk"
   },
   "config": {},

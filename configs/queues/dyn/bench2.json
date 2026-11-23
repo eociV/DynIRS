@@ -20,7 +20,7 @@
    "deterministic": false,
    "plots": false,
    "data": "rgb",
-   "workers": 6,
+   "workers": 4,
    "cache": "disk"
   },
   "config": {
@@ -56,7 +56,7 @@
    "deterministic": false,
    "plots": false,
    "data": "rgb",
-   "workers": 6,
+   "workers": 4,
    "cache": "disk"
   },
   "config": {

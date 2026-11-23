@@ -26,7 +26,7 @@ MAN = ROOT / "splits"
 RUNS = ROOT / "runs" / "remote"
 OUT = ROOT / "runs" / "analysis" / "dyn"
 METRICS = [("rgb", "all"), ("rgb", "night"), ("ir", "all"), ("ir", "night")]
-MODELS = ("26n", "v8n", "11n", "v10n", "12n")
+MODELS = ("26n", "v8n", "11n")
 CONTRASTS = {"26n": [("T", "C"), ("TL", "C"), ("TL", "T"), ("T", "S"), ("T", "M"), ("TL", "M"), ("C", "M"),
                      ("C", "B")]}
 DEFAULT_CONTRASTS = [("T", "C"), ("TL", "C"), ("TL", "T")]

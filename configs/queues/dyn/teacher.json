@@ -24,7 +24,7 @@
    "deterministic": false,
    "plots": false,
    "data": "ir",
-   "workers": 6,
+   "workers": 4,
    "cache": "disk"
   },
   "config": {},

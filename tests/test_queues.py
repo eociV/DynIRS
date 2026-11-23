@@ -17,10 +17,11 @@ def test_matrix_counts():
     students = names - {"dyn_teacher_26l"} - {n for n in names if n.startswith("dyn_smoke")}
     assert sorted(n for n in students if n.startswith("dyn_26n_")) == sorted(
         f"dyn_26n_{c}_s{s}" for c in ("B", "M", "C", "T", "TL", "S") for s in (0, 1, 2))
-    for m in ("v8n", "11n", "v10n", "12n"):
+    for m in ("v8n", "11n"):
         assert sorted(n for n in students if n.startswith(f"dyn_{m}_")) == sorted(
             f"dyn_{m}_{c}_s{s}" for c in ("C", "T", "TL") for s in (0, 1, 2))
-    assert len(students) == 54
+    assert len(students) == 36
+    assert not any(n.startswith(("dyn_v10n", "dyn_12n")) for n in names)
 
 
 def test_job_configs():
@@ -39,14 +40,15 @@ def test_job_configs():
         assert j["train"]["deterministic"] is False and j["train"]["cache"] == "disk"
         assert j["train"].get("distill_model") is None
         assert j["predict"]["split"] == "test" and "test" in j["splits"]
-    assert jobs["dyn_v10n_TL_s0"]["train"]["model"] == "yolov10n.pt"
+    assert jobs["dyn_v8n_TL_s0"]["train"]["model"] == "yolov8n.pt"
+    assert mq.HW["local"]["workers"] == 4
     tch = jobs["dyn_teacher_26l"]
     assert tch["train"]["model"] == "yolo26l.pt" and tch["train"]["data"] == "ir" and tch["train"]["batch"] == 16
 
 
 def test_t4_c_queues_need_no_teacher():
     q = mq.build()
-    for m in ("v8n", "11n", "v10n", "12n"):
+    for m in ("v8n", "11n"):
         for s in (0, 1, 2):
             assert [j["name"] for j in q[f"t4_{m}_s{s}_c"]] == [f"dyn_{m}_C_s{s}"]
             assert [j["name"] for j in q[f"t4_{m}_s{s}_ttl"]] == [f"dyn_{m}_T_s{s}", f"dyn_{m}_TL_s{s}"]
@@ -56,7 +58,7 @@ def test_t4_c_queues_need_no_teacher():
 def test_smoke_tl_covers_all_models_and_no_smoke_t():
     q = mq.build()
     assert "smoke_t" not in q
-    assert [j["name"] for j in q["smoke_tl"]] == [f"dyn_smoke_{m}_TL" for m in mq.MODELS]
+    assert [j["name"] for j in q["smoke_tl"]] == [f"dyn_smoke_{m}_TL" for m in ("26n", "v8n", "11n")]
     for j in q["smoke_tl"]:
         assert j["config"]["ir_soft_w_dir"] == "auto:TL" and j["train"]["data"] == "rgb_proxy"
         assert j["train"]["epochs"] == 1 and j["proxy_fraction"] == 0.012

@@ -10,6 +10,8 @@
 
 **Spec:** `docs/superpowers/specs/2026-11-23-dynamic-ir-soft-weights-design.md`
 
+> **Amendment (2026-11-23):** the matrix now uses three models — YOLO26n, YOLOv8n, YOLO11n (36 student runs); references below to YOLOv10n / YOLO12n, `t4_v10n_*` / `t4_12n_*` queues, `dyn_bench_12n` (now `dyn_bench_11n`) and 54 runs are superseded. Local workers are 4. See the spec's Amendments section.
+
 ## Global Constraints
 
 - `ultralytics==8.4.173` exactly (pinned in `requirements.txt` and `src/job_main.py`).

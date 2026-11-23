@@ -8,7 +8,7 @@ Status: draft, awaiting user review
 Extend IRS-YOLO26n for a follow-up paper. The original recipe adds vehicles annotated only in the
 IR frame (IR-only boxes) to the RGB detection loss with a **constant** weight ω = 0.3. This work
 replaces the constant with a **per-box weight** computed from a strong IR teacher, and tests whether
-the effect holds across several nano YOLO architectures.
+the effect holds across three nano YOLO architectures (YOLO26n, YOLOv8n, YOLO11n).
 
 **Research questions** (configuration codes are defined in §4)
 
@@ -16,7 +16,7 @@ the effect holds across several nano YOLO architectures.
 |---|---|---|---|
 | RQ1 | Does a per-box ω beat the constant ω = 0.3 when the mean weight is held equal, and is the gain due to the teacher's information rather than to weight variance? | **T − C**, and **T − S** | RGB AP50:95, overall and night |
 | RQ2 | Does adding darkness to ω (trusting the teacher more where RGB is dark) help beyond teacher confidence alone? | **TL − T** (and TL − C) | As RQ1, with emphasis on night images and IR-only vehicle recall |
-| RQ3 | Do the gains transfer from YOLO26n to YOLOv8n, YOLOv10n, YOLO11n and YOLO12n? | Sign and size of T − C and TL − C per model | As RQ1 |
+| RQ3 | Do the gains transfer from YOLO26n to YOLOv8n and YOLO11n? | Sign and size of T − C and TL − C per model | As RQ1 |
 | RQ4 | Is teacher-weighted IR supervision better than simply adding the IR frames as extra training images (no teacher)? | **T − M**, **TL − M** (and C − M), YOLO26n | As RQ1 |
 
 C − B is also reported on YOLO26n, to show that the original paper's result reproduces under the new
@@ -26,7 +26,7 @@ protocol.
 
 - Main result: on YOLO26n, T − C or TL − C is positive, with a Holm-corrected 95 % CI that excludes
   0, at least for night RGB AP50:95.
-- Generalisation: T − C or TL − C is positive on at least 3 of the 4 other models.
+- Generalisation: T − C or TL − C is positive on both other models (YOLOv8n, YOLO11n).
 - Beyond naive mixing: T or TL > M on YOLO26n.
 - Mechanism: T > S on YOLO26n. If T ≈ S, the gain is regularisation from weight variance rather
   than teacher information, and the paper's claim must be reframed.
@@ -104,9 +104,7 @@ configurations of that model is not confounded by hardware.
 | YOLO26n | 0, 1, 2 | 18 (B, M, C, T, TL, S) | user's RTX 5060 Ti |
 | YOLOv8n | 0, 1, 2 | 9 (C, T, TL) | T4 (Kaggle / Colab, team accounts) |
 | YOLO11n | 0, 1, 2 | 9 | T4 |
-| YOLOv10n | 0, 1, 2 | 9 | T4 |
-| YOLO12n | 0, 1, 2 | 9 | T4 |
-| **Total** | | **54 students + 1 teacher** | |
+| **Total** | | **36 students + 1 teacher** | |
 
 T4 runs are split across the team's Kaggle / Colab accounts. Queue files are per (model, seed) so
 they can be handed out. A T4 on any account counts as the same GPU type. The final model-to-hardware
@@ -239,3 +237,12 @@ Model selection is unchanged: validation every epoch and `best.pt`, as in the or
 | ω-TL gives high weight to boxes with no RGB signal and adds noise. | That is the hypothesis under test; a negative result is still reported. |
 | Kaggle throughput is limited by its 4 CPU cores. | Measure in step 0. Use `cache: "ram"` on Kaggle (about 30 GB of RAM). |
 | The results are not directly comparable with the original paper (40 epochs / 640 px versus 60 / 704). | All four configurations are retrained under the same protocol. State this in the paper. |
+
+## Amendments (2026-11-23, after implementation)
+
+- Models reduced to three: YOLO26n, YOLOv8n, YOLO11n (36 student runs). YOLOv10n and YOLO12n are
+  dropped; everything above that mentions them or the "other models" refers to v8n and 11n only.
+- Local DataLoader workers reduced from 6 to 4 (16 GB RAM); applies to every local run alike.
+- Teacher scoring its own training boxes: train one YOLO26l teacher first, inspect the spread
+  statistics written by `omega.py weights` (std, IQR, fraction within 0.3 ± 0.05, teacher-confidence
+  std and fraction ≥ 0.9), then decide whether to switch to 2-fold cross-fitting.

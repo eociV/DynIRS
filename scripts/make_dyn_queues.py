@@ -10,7 +10,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 OUT = ROOT / "configs" / "queues" / "dyn"
-MODELS = {"26n": "yolo26n.pt", "v8n": "yolov8n.pt", "11n": "yolo11n.pt", "v10n": "yolov10n.pt", "12n": "yolo12n.pt"}
+MODELS = {"26n": "yolo26n.pt", "v8n": "yolov8n.pt", "11n": "yolo11n.pt"}
 SOFT = {"paired": True, "load_ir": False, "ir_only_dir": "auto", "llsa": None, "dnc_lambda": 0.0, "tgd_lambda": 0.0}
 CONFIGS = {
     "B": {},
@@ -21,7 +21,7 @@ CONFIGS = {
     "S": dict(SOFT, ir_soft_w_dir="auto:S"),
 }
 DATA_KEY = {"M": "mix"}
-HW = {"local": {"workers": 6, "cache": "disk"}, "t4": {"workers": 2, "cache": "disk"}}  # t4: 2 lanes share 4 CPUs
+HW = {"local": {"workers": 4, "cache": "disk"}, "t4": {"workers": 2, "cache": "disk"}}  # t4: 2 lanes share 4 CPUs
 
 
 def student(model, cfg, seed, hw, epochs, imgsz, name=None, data=None, extra=None):
@@ -51,7 +51,7 @@ def build(epochs=40, imgsz=640):
     q = {}
     proxy = {"proxy_fraction": 0.012}  # about 200 train images
     q["bench"] = [student("26n", "C", 0, "local", 1, imgsz, name="dyn_bench_26n"),
-                  student("12n", "C", 0, "local", 1, imgsz, name="dyn_bench_12n"),
+                  student("11n", "C", 0, "local", 1, imgsz, name="dyn_bench_11n"),
                   teacher(1, name="dyn_bench_teacher")]
     for j in q["bench"]:
         j.pop("predict")
@@ -66,7 +66,7 @@ def build(epochs=40, imgsz=640):
     cfg26 = ("B", "M", "C", "T", "TL", "S")
     q["local_26n_s0"] = [student("26n", c, 0, "local", epochs, imgsz) for c in cfg26]
     q["local_26n_s12"] = [student("26n", c, s, "local", epochs, imgsz) for s in (1, 2) for c in cfg26]
-    for m in ("v8n", "11n", "v10n", "12n"):
+    for m in ("v8n", "11n"):
         for s in (0, 1, 2):
             q[f"t4_{m}_s{s}_c"] = [student(m, "C", s, "t4", epochs, imgsz)]
             q[f"t4_{m}_s{s}_ttl"] = [student(m, c, s, "t4", epochs, imgsz) for c in ("T", "TL")]
