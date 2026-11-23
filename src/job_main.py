@@ -236,6 +236,14 @@ def train(job):
     return done
 
 
+def write_atomic(dst, text):
+    """Write text next to dst and os.replace it, so a killed process never leaves a partial file."""
+    dst = Path(dst)
+    tmp = dst.with_name(dst.name + ".tmp")
+    tmp.write_text(text)
+    os.replace(tmp, dst)
+
+
 def predict(job):
     from ultralytics import YOLO
 
@@ -263,7 +271,7 @@ def predict(job):
     tag = "" if p.get("data_root", "rgb") == "rgb" else "_" + p["data_root"]
     dst = WS / "out" / job["name"] / f"preds_{p['split']}{tag}.json"
     dst.parent.mkdir(parents=True, exist_ok=True)
-    dst.write_text(json.dumps(preds))
+    write_atomic(dst, json.dumps(preds))
     log("predicted", len(files), "images", len(preds), "boxes", round(time.time() - t), "s ->", dst.name)
 
 

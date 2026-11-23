@@ -42,3 +42,10 @@ def test_hash_omega_dir(tmp_path):
     assert h == jm.hash_omega_dir(tmp_path) and len(h) == 64
     (tmp_path / "b.txt").write_text("1 0.5 0.5 0.1 0.1 0.25\n")
     assert jm.hash_omega_dir(tmp_path) != h
+
+
+def test_write_atomic_replaces_without_leftovers(tmp_path):
+    dst = tmp_path / "preds.json"
+    dst.write_text("old")
+    jm.write_atomic(dst, "[1, 2]")
+    assert dst.read_text() == "[1, 2]" and list(tmp_path.iterdir()) == [dst]

@@ -45,8 +45,23 @@ def epochs_done(out):
         return None
     import torch
 
-    ep = torch.load(last, map_location="cpu", weights_only=False)["epoch"]
+    try:
+        ep = torch.load(last, map_location="cpu", weights_only=False)["epoch"]
+    except Exception as e:  # truncated by a kill, or unreadable: never resume from it
+        bad = last.with_name(last.name + ".corrupt")
+        os.replace(last, bad)
+        print(f"WARNING: unusable checkpoint {last} ({type(e).__name__}); moved to {bad.name}, "
+              "the job restarts", flush=True)
+        return None
     return "finished" if ep == -1 else ep + 1
+
+
+def _valid_json(path):
+    try:
+        json.loads(Path(path).read_text())
+        return True
+    except (OSError, ValueError):
+        return False
 
 
 def plan(spec, runs=RUNS):
@@ -55,7 +70,7 @@ def plan(spec, runs=RUNS):
         return [(spec, None)]
     out = Path(runs) / spec["name"] / "ws" / "out" / spec["name"]
     pred = predict_output(spec)
-    if pred and (out / pred).exists():
+    if pred and _valid_json(out / pred):
         return []
     done = epochs_done(out)
     if done == "finished":

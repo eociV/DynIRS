@@ -75,3 +75,22 @@ def test_no_predict_job_done_with_best_and_finished_last(tmp_path):
 def test_non_train_job_runs_once(tmp_path):
     s = {"name": "j", "kind": "latency"}
     assert [(j["kind"], st) for j, st in rq.plan(s, tmp_path)] == [("latency", None)]
+
+
+def test_truncated_prediction_is_not_done(tmp_path):
+    out = _out(tmp_path)
+    _last(out, -1)
+    (out / "preds_test.json").write_text('[{"image_id": "a", "sc')
+    assert [j["kind"] for j, _ in rq.plan(_spec(), tmp_path)] == ["predict"]
+    (out / "preds_test.json").write_text("[]")
+    assert rq.plan(_spec(), tmp_path) == []
+
+
+def test_corrupt_last_pt_reruns_and_is_moved_aside(tmp_path, capsys):
+    out = _out(tmp_path)
+    (out / "weights" / "last.pt").write_bytes(b"garbage")
+    steps = rq.plan(_spec(), tmp_path)
+    assert [s for _, s in steps] == [5, None]
+    assert not (out / "weights" / "last.pt").exists()
+    assert (out / "weights" / "last.pt.corrupt").exists()
+    assert "last.pt" in capsys.readouterr().out
