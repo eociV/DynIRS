@@ -29,6 +29,43 @@ SRC_FILES = ["lowlight.py", "dv_prep.py", "dv_pairs.py", "job_main.py", "zdce.py
 STUB = "import sys\nsys.path.insert(0, 'src')\nimport job_main\njob_main.main('job.json')\n"
 
 
+def predict_output(spec):
+    """File name job_main.predict writes for this job (None if the job has no predict step)."""
+    p = spec.get("predict")
+    if not p:
+        return None
+    root = p.get("data_root", "rgb")
+    return f"preds_{p['split']}{'' if root == 'rgb' else '_' + root}.json"
+
+
+def epochs_done(out):
+    """None without a last.pt, "finished" when training completed (epoch -1), else epochs completed."""
+    last = out / "weights" / "last.pt"
+    if not last.exists():
+        return None
+    import torch
+
+    ep = torch.load(last, map_location="cpu", weights_only=False)["epoch"]
+    return "finished" if ep == -1 else ep + 1
+
+
+def plan(spec, runs=RUNS):
+    """[(job spec, chunk stop)] still to run, given what is already in runs/<name>/ws/out/<name>."""
+    if spec["kind"] != "train":
+        return [(spec, None)]
+    out = Path(runs) / spec["name"] / "ws" / "out" / spec["name"]
+    pred = predict_output(spec)
+    if pred and (out / pred).exists():
+        return []
+    done = epochs_done(out)
+    if done == "finished":
+        if pred:
+            return [(dict(spec, kind="predict"), None)]
+        return [] if (out / "weights" / "best.pt").exists() else [(spec, None)]
+    chunks = spec.get("chunks", [None])
+    return [(spec, s) for s in chunks if s is None or done is None or done < s]
+
+
 def run_chunk(spec, stop):
     name = spec["name"]
     ws = RUNS / name / "ws"
@@ -62,8 +99,8 @@ def main():
     for spec in json.loads(Path(a.queue).read_text()):
         if a.only and spec["name"] not in a.only:
             continue
-        for stop in spec.get("chunks", [None]) if spec["kind"] == "train" else [None]:
-            if not run_chunk(spec, stop):
+        for job, stop in plan(spec):
+            if not run_chunk(job, stop):
                 print(f"STOP: {spec['name']} chunk {stop} failed", flush=True)
                 return 1
     return 0
