@@ -32,3 +32,20 @@ def test_describe_runs(tmp_path):
     (tmp_path / "none").mkdir()
     d = dict(ks.describe_runs(tmp_path))
     assert d == {"fin": "finished", "mid": "epoch 10 done", "none": "no last.pt"}
+
+
+def test_describe_runs_survives_unreadable_checkpoint(tmp_path):
+    w = tmp_path / "bad" / "ws" / "out" / "bad" / "weights"
+    w.mkdir(parents=True)
+    (w / "last.pt").write_bytes(b"garbage")
+    (name, state), = ks.describe_runs(tmp_path)
+    assert name == "bad" and state.startswith("epoch unknown (")
+
+
+def test_lane_cmd_uses_session_deadline():
+    class A:
+        queue, lanes, gpus, only = "q.json", 2, "0,1", ["x"]
+
+    cmd = ks.lane_cmd(A, deadline=1234.5)
+    assert cmd[cmd.index("--deadline") + 1] == "1234.5" and "--budget-h" not in cmd
+    assert cmd[-2:] == ["--only", "x"] or cmd[-1] == "x"

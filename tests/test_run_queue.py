@@ -94,3 +94,13 @@ def test_corrupt_last_pt_reruns_and_is_moved_aside(tmp_path, capsys):
     assert not (out / "weights" / "last.pt").exists()
     assert (out / "weights" / "last.pt.corrupt").exists()
     assert "last.pt" in capsys.readouterr().out
+
+
+def test_note_current_writes_lane_file(tmp_path, monkeypatch):
+    f = tmp_path / ".lane_0_current"
+    monkeypatch.setenv("DYN_LANE_FILE", str(f))
+    rq.note_current("job_a", 20)
+    assert f.read_text() == "job_a chunk 20"
+    monkeypatch.delenv("DYN_LANE_FILE")
+    rq.note_current("job_b", None)  # no env var: no-op
+    assert f.read_text() == "job_a chunk 20"

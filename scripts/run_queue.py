@@ -81,6 +81,13 @@ def plan(spec, runs=RUNS):
     return [(spec, s) for s in chunks if s is None or done is None or done < s]
 
 
+def note_current(name, stop):
+    """Tell run_lanes (via $DYN_LANE_FILE) which job/chunk this lane is running."""
+    f = os.environ.get("DYN_LANE_FILE")
+    if f:
+        Path(f).write_text(f"{name} chunk {stop}")
+
+
 def run_chunk(spec, stop):
     name = spec["name"]
     ws = RUNS / name / "ws"
@@ -96,6 +103,7 @@ def run_chunk(spec, stop):
     (ws / "job.json").write_text(json.dumps(job, indent=1))
     env = dict(os.environ)
     env.setdefault("DV_DATA", str(ROOT / "data" / "dronevehicle"))
+    note_current(name, stop)
     log = RUNS / name / f"chunk_{stop}_{time.strftime('%m%d-%H%M%S')}.log"
     t0 = time.time()
     with open(log, "w") as fh:

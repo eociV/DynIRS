@@ -13,6 +13,7 @@ import os
 import shutil
 import subprocess
 import sys
+import time
 from pathlib import Path
 
 
@@ -37,12 +38,23 @@ def describe_runs(remote):
             continue
         import torch
 
-        ep = torch.load(last, map_location="cpu", weights_only=False)["epoch"]
+        try:
+            ep = torch.load(last, map_location="cpu", weights_only=False)["epoch"]
+        except Exception as e:
+            out.append((d.name, f"epoch unknown ({type(e).__name__})"))
+            continue
         out.append((d.name, "finished" if ep == -1 else f"epoch {ep + 1} done"))
     return out
 
 
+def lane_cmd(a, deadline):
+    cmd = [sys.executable, "scripts/run_lanes.py", a.queue, "--lanes", str(a.lanes), "--gpus", a.gpus,
+           "--deadline", str(deadline)]
+    return cmd + (["--only", *a.only] if a.only else [])
+
+
 def main(argv=None):
+    deadline = time.time()  # session start; the budget counts from here, not from the lane launch
     ap = argparse.ArgumentParser()
     ap.add_argument("--queue", required=True)
     ap.add_argument("--data-in", required=True)
@@ -69,16 +81,14 @@ def main(argv=None):
         prev = find_prev_runs(a.prev_out)
         shutil.copytree(prev, repo / "runs" / "remote", dirs_exist_ok=True)
         print("restored", prev, flush=True)
+    subprocess.run([sys.executable, "-m", "pip", "install", "-q", "-r", str(repo / "requirements.txt")], check=True)
+    if a.prev_out:  # after pip: loading a real checkpoint needs ultralytics importable
         for name, state in describe_runs(prev):
             print(f"  {name}: {state}", flush=True)
-    subprocess.run([sys.executable, "-m", "pip", "install", "-q", "-r", str(repo / "requirements.txt")], check=True)
     env = dict(os.environ, DV_DATA=str(dv))
     subprocess.run([sys.executable, "scripts/warm_cache.py", "--splits", "train", "val", "--mods", *a.mods],
                    cwd=repo, env=env, check=True)
-    cmd = [sys.executable, "scripts/run_lanes.py", a.queue, "--lanes", str(a.lanes), "--gpus", a.gpus,
-           "--budget-h", str(a.budget_h)]
-    cmd += ["--only", *a.only] if a.only else []
-    return subprocess.run(cmd, cwd=repo, env=env).returncode
+    return subprocess.run(lane_cmd(a, deadline + a.budget_h * 3600), cwd=repo, env=env).returncode
 
 
 if __name__ == "__main__":
