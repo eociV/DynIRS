@@ -17,15 +17,17 @@ the effect holds across several nano YOLO architectures.
 | RQ1 | Does a per-box ω beat the constant ω = 0.3 when the mean weight is held equal, and is the gain due to the teacher's information rather than to weight variance? | **T − C**, and **T − S** | RGB AP50:95, overall and night |
 | RQ2 | Does adding darkness to ω (trusting the teacher more where RGB is dark) help beyond teacher confidence alone? | **TL − T** (and TL − C) | As RQ1, with emphasis on night images and IR-only vehicle recall |
 | RQ3 | Do the gains transfer from YOLO26n to YOLOv8n, YOLOv10n, YOLO11n and YOLO12n? | Sign and size of T − C and TL − C per model | As RQ1 |
+| RQ4 | Is teacher-weighted IR supervision better than simply adding the IR frames as extra training images (no teacher)? | **T − M**, **TL − M** (and C − M), YOLO26n | As RQ1 |
 
-C − B is also reported, to show that the original paper's result reproduces under the new protocol
-and on the other models.
+C − B is also reported on YOLO26n, to show that the original paper's result reproduces under the new
+protocol.
 
 **Success criteria**
 
 - Main result: on YOLO26n, T − C or TL − C is positive, with a Holm-corrected 95 % CI that excludes
   0, at least for night RGB AP50:95.
 - Generalisation: T − C or TL − C is positive on at least 3 of the 4 other models.
+- Beyond naive mixing: T or TL > M on YOLO26n.
 - Mechanism: T > S on YOLO26n. If T ≈ S, the gain is regularisation from weight variance rather
   than teacher information, and the paper's claim must be reframed.
 
@@ -76,13 +78,15 @@ any difference comes only from how the weight is redistributed across boxes. Hyp
 
 **Shared protocol:** 40 epochs, 640 px, batch 32 (lower it only if a model runs out of memory, and
 record the change), the train / val / test splits under `splits/`, and soft-label-only training:
-`paired: true`, `tgd_lambda: 0`, `ir_only_dir: auto`.
+`paired: true`, `tgd_lambda: 0`, `ir_only_dir: auto`. Every configuration, baselines included,
+uses the same training settings and environment; validation and test are always on RGB images.
 
-**Four configurations per model and seed:**
+**Configurations:**
 
 | Code | Configuration |
 |---|---|
-| B | Baseline, RGB labels only. Floor: shows whether IR labels help at all. |
+| B | Baseline, RGB labels only. Floor: shows whether IR labels help at all. YOLO26n only. |
+| M | Mixed-modality baseline, YOLO26n only: same student, no teacher, no soft labels; trained on the union of the RGB train images (RGB labels) and the IR train images (IR labels, grayscale read as 3 channels), each image a separate sample. Same 40 epochs, so one epoch has twice as many images and a run costs about twice as long. |
 | C | IR soft labels with constant ω = 0.3 (job `m2_soft` in the original paper). **Main competitor.** |
 | T | IR soft labels with ω-T |
 | TL | IR soft labels with ω-TL |
@@ -90,27 +94,30 @@ record the change), the train / val / test splits under `splits/`, and soft-labe
 
 The union configuration (ω = 1) is not rerun; the original paper showed it is worse than ω = 0.3.
 
-**Hardware assignment.** Each model is trained entirely on one GPU type, so the B / C / T / TL
-comparison for that model is not confounded by hardware.
+Baselines (B, M) run on one model, YOLO26n. The other models run only C, T and TL, which is what
+RQ3 needs.
+
+**Hardware assignment.** Each model is trained entirely on one GPU type, so the comparison between
+configurations of that model is not confounded by hardware.
 
 | Model | Seeds | Runs | Hardware |
 |---|---|---|---|
-| YOLO26n | 0, 1, 2 | 15 (B, C, T, TL, S) | user's RTX 5060 Ti |
-| YOLOv8n | 0 | 4 | T4 (Kaggle / Colab) |
-| YOLO11n | 0 | 4 | T4 |
-| YOLOv10n | 0 | 4 | T4 |
-| YOLO12n | 0 | 4 | T4 |
-| **Total** | | **31 students + 1 teacher** | |
+| YOLO26n | 0, 1, 2 | 18 (B, M, C, T, TL, S) | user's RTX 5060 Ti |
+| YOLOv8n | 0 | 3 (C, T, TL) | T4 (Kaggle / Colab) |
+| YOLO11n | 0 | 3 | T4 |
+| YOLOv10n | 0 | 3 | T4 |
+| YOLO12n | 0 | 3 | T4 |
+| **Total** | | **30 students + 1 teacher** | |
 
 **Order, with gates:**
 
 0. Benchmark: time one epoch of 26n, 12n and 26l on the local GPU, and of 26n on a Kaggle T4. Lock
    the epoch count and the matrix from these numbers.
-1. Local GPU: teacher 26l. In parallel on T4: B and C for v8n and 11n, which need no teacher.
+1. Local GPU: teacher 26l. In parallel on T4: C for v8n, 11n, v10n and 12n, which needs no teacher.
 2. Local GPU: compute ω, then build and upload the Kaggle dataset with the weight files.
-3. Local GPU: 26n B / C / T / TL / S with seed 0. **Gate:** if neither T nor TL beats C on overall RGB
+3. Local GPU: 26n B / M / C / T / TL / S with seed 0. **Gate:** if neither T nor TL beats C on overall RGB
    AP50:95 or night RGB AP50:95, stop and review with the user before spending more compute.
-4. T4: T and TL for v8n and 11n, then all four configurations for v10n and 12n.
+4. T4: T and TL for v8n, 11n, v10n and 12n.
 5. Local GPU: 26n seeds 1 and 2.
 
 **If the budget runs short, cut in this order:** 12n, then v10n, then 26n seed 2.
@@ -120,7 +127,8 @@ comparison for that model is not confounded by hardware.
 - Reuse `src/evaluate.py`: COCO AP50:95 against both the RGB and the IR annotations, overall and on
   the night band, on the test split.
 - Also report recall of IR-only vehicles (`analysis_*.py`).
-- YOLO26n (3 seeds): seed-paired differences T − C, TL − C, TL − T, T − S and C − B, with t confidence intervals
+- YOLO26n (3 seeds): seed-paired differences T − C, TL − C, TL − T, T − S, T − M, TL − M, C − M
+  and C − B, with t confidence intervals
   and Holm correction, as in `make_rev1_tables.py`.
 - Single-seed models: image-level paired bootstrap (`rev1_boot.py`). The paper must state that
   these models have one seed.
@@ -156,6 +164,9 @@ comparison for that model is not confounded by hardware.
 ### 6.3 `src/job_main.py`
 
 - Resolve `ir_soft_w_dir: "auto:<variant>"` to `proc/ironly_w/<variant>/train`.
+- Add a `mix` data key to `_data_yaml`: train on `[rgb/train/images, ir/train/images]` (Ultralytics
+  finds each image's labels in the sibling `labels` folder, so IR images get IR labels), validate on
+  `rgb/val/images`.
 - Add a `teacher` training kind that trains on the IR frames, if the existing `t_ir` path does not
   already cover YOLO26l.
 

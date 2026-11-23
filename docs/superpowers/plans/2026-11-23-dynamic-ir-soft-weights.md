@@ -15,7 +15,8 @@
 - `ultralytics==8.4.173` exactly (pinned in `requirements.txt` and `src/job_main.py`).
 - Python 3.11 virtual environment at `.venv/` for local work.
 - Student protocol: 40 epochs, imgsz 640, batch 32, splits under `splits/`, soft-label-only (`tgd_lambda: 0`, no `distill_model`).
-- Configurations: B (RGB only), C (`ir_soft: 0.3`), T, TL, S (S on YOLO26n only).
+- Configurations: B (RGB only), M (RGB + IR train images mixed, no teacher), C (`ir_soft: 0.3`), T, TL, S. B, M and S on YOLO26n only; v8n / 11n / v10n / 12n run C, T, TL.
+- Every configuration, baselines included, uses identical training settings and environment; val and test are RGB.
 - Weights: floor 0.05, ceiling 1, train-set mean 0.3 ± 0.001 after clipping, γ = 1, teacher match IoU ≥ 0.5, class-agnostic.
 - ω-T raw = `c`; ω-TL raw = `c · (1 − v)`; S = ω-T values permuted across all IR-only train boxes with seed 0.
 - Teacher: YOLO26l from `yolo26l.pt`, IR frames, imgsz 640, batch 16, 50 epochs (30 if bench × 50 > 12 h), local GPU only.
@@ -793,8 +794,9 @@ git commit -m "feat: omega CLI (teacher signals, per-variant weight files)"
 - Consumes: CONFIG keys from Task 2.
 - Produces:
   - `job_main.resolve_config(cfg: dict, data: Path, ws: Path) -> dict` (returns a new dict; raises `ValueError` / `FileNotFoundError`)
+  - `job_main._data_yaml("mix", job)`: yaml training on RGB + IR train images, validating on RGB val
   - `make_dyn_queues.build(epochs=40, imgsz=640) -> dict[str, list[dict]]` (file stem -> jobs) and `main(argv)` writing `configs/queues/dyn/<stem>.json`
-  - Job names: `dyn_<model>_<cfg>_s<seed>` with model in `26n v8n 11n v10n 12n`, cfg in `B C T TL S`; teacher `dyn_teacher_26l`.
+  - Job names: `dyn_<model>_<cfg>_s<seed>` with model in `26n v8n 11n v10n 12n`, cfg in `B M C T TL S`; teacher `dyn_teacher_26l`.
 
 - [ ] **Step 1: Write the failing tests**
 
@@ -819,6 +821,13 @@ def test_resolve_auto_paths(tmp_path):
 def test_resolve_missing_weight_dir_fails(tmp_path):
     with pytest.raises(FileNotFoundError):
         jm.resolve_config({"ir_soft_w_dir": "auto:T"}, tmp_path, tmp_path)
+
+
+def test_mix_data_yaml(tmp_path, monkeypatch):
+    monkeypatch.setattr(jm, "DATA", tmp_path)
+    y = Path(jm._data_yaml("mix", {"name": "j"})).read_text()
+    assert "train: [rgb/train/images, ir/train/images]" in y
+    assert "val: rgb/val/images" in y and "test: rgb/test/images" in y
 
 
 def test_resolve_rejects_both_soft_modes(tmp_path):
@@ -847,17 +856,21 @@ def test_matrix_counts():
     names = {j["name"] for j in train}
     assert "dyn_teacher_26l" in names
     students = names - {"dyn_teacher_26l"} - {n for n in names if n.startswith("dyn_smoke")}
-    assert len([n for n in students if n.startswith("dyn_26n_")]) == 15
+    assert sorted(n for n in students if n.startswith("dyn_26n_")) == sorted(
+        f"dyn_26n_{c}_s{s}" for c in ("B", "M", "C", "T", "TL", "S") for s in (0, 1, 2))
     for m in ("v8n", "11n", "v10n", "12n"):
         assert sorted(n for n in students if n.startswith(f"dyn_{m}_")) == sorted(
-            f"dyn_{m}_{c}_s0" for c in ("B", "C", "T", "TL"))
-    assert len(students) == 31
+            f"dyn_{m}_{c}_s0" for c in ("C", "T", "TL"))
+    assert len(students) == 30
 
 
 def test_job_configs():
     jobs = {j["name"]: j for j in _all(mq.build())}
     b, c, t, s = (jobs[f"dyn_26n_{x}_s1"] for x in ("B", "C", "T", "S"))
-    assert b["config"] == {}
+    assert b["config"] == {} and b["train"]["data"] == "rgb"
+    mx = jobs["dyn_26n_M_s1"]
+    assert mx["config"] == {} and mx["train"]["data"] == "mix"
+    assert {k: v for k, v in mx["train"].items() if k != "data"} == {k: v for k, v in b["train"].items() if k != "data"}
     assert c["config"]["ir_soft"] == 0.3 and c["config"]["paired"] is True
     assert t["config"]["ir_soft_w_dir"] == "auto:T" and "ir_soft" not in t["config"]
     assert s["config"]["ir_soft_w_dir"] == "auto:S"
@@ -870,10 +883,11 @@ def test_job_configs():
     assert tch["train"]["model"] == "yolo26l.pt" and tch["train"]["data"] == "ir" and tch["train"]["batch"] == 16
 
 
-def test_t4_bc_queues_need_no_teacher():
+def test_t4_c_queues_need_no_teacher():
     q = mq.build()
     for m in ("v8n", "11n", "v10n", "12n"):
-        assert {j["name"].split("_")[2] for j in q[f"t4_{m}_bc"] if j["kind"] == "train"} == {"B", "C"}
+        assert [j["name"] for j in q[f"t4_{m}_c"]] == [f"dyn_{m}_C_s0"]
+        assert [j["name"] for j in q[f"t4_{m}_ttl"]] == [f"dyn_{m}_T_s0", f"dyn_{m}_TL_s0"]
 ```
 
 - [ ] **Step 2: Run tests to verify they fail**
@@ -881,7 +895,17 @@ def test_t4_bc_queues_need_no_teacher():
 Run: `python -m pytest tests/test_job_main.py tests/test_queues.py -v`
 Expected: FAIL — `AttributeError: module 'job_main' has no attribute 'resolve_config'` and `ModuleNotFoundError: No module named 'make_dyn_queues'`.
 
-- [ ] **Step 3: Implement `resolve_config`**
+- [ ] **Step 3: Implement `resolve_config` and the `mix` data key**
+
+In `src/job_main.py` `_data_yaml`, add before the final `raise ValueError(key)`:
+```python
+    if key == "mix":  # RGB + IR train images as separate samples (labels from each sibling labels dir)
+        y = DATA / "mix.yaml"
+        y.write_text(f"path: {proc}\ntrain: [rgb/train/images, ir/train/images]\nval: rgb/val/images\n"
+                     f"test: rgb/test/images\nnames: {json.dumps(NAMES)}\n")
+        return str(y)
+```
+
 
 In `src/job_main.py`, add before `def train(job):`:
 ```python
@@ -919,7 +943,7 @@ In `train(job)`, replace lines 167-173 (from `ll.CONFIG.update(...)` to the `ir_
 
   python scripts/make_dyn_queues.py [--epochs 40] [--imgsz 640]
 
-Queues: bench, smoke, teacher, local_26n_s0, local_26n_s12, t4_<model>_bc, t4_<model>_ttl.
+Queues: bench, smoke, smoke_t, teacher, local_26n_s0, local_26n_s12, t4_<model>_c, t4_<model>_ttl.
 """
 import argparse
 import json
@@ -931,16 +955,19 @@ MODELS = {"26n": "yolo26n.pt", "v8n": "yolov8n.pt", "11n": "yolo11n.pt", "v10n":
 SOFT = {"paired": True, "ir_only_dir": "auto", "llsa": None, "dnc_lambda": 0.0, "tgd_lambda": 0.0}
 CONFIGS = {
     "B": {},
+    "M": {},  # trained on data "mix" (RGB + IR train images), see DATA_KEY
     "C": dict(SOFT, ir_soft=0.3, ir_soft_dir="auto"),
     "T": dict(SOFT, ir_soft_w_dir="auto:T"),
     "TL": dict(SOFT, ir_soft_w_dir="auto:TL"),
     "S": dict(SOFT, ir_soft_w_dir="auto:S"),
 }
+DATA_KEY = {"M": "mix"}
 HW = {"local": {"workers": 8, "cache": False}, "t4": {"workers": 4, "cache": False}}
 
 
-def student(model, cfg, seed, hw, epochs, imgsz, name=None, data="rgb", extra=None):
+def student(model, cfg, seed, hw, epochs, imgsz, name=None, data=None, extra=None):
     name = name or f"dyn_{model}_{cfg}_s{seed}"
+    data = data or DATA_KEY.get(cfg, "rgb")
     job = {"name": name, "kind": "train", "splits": ["train", "val", "test"],
            "chunks": [epochs // 2, None] if epochs > 1 else [None], "timeout": 0,
            "train": {"model": MODELS[model], "epochs": epochs, "imgsz": imgsz, "batch": 32, "seed": seed,
@@ -974,11 +1001,11 @@ def build(epochs=40, imgsz=640):
     q["smoke_t"] = [student("26n", "T", 0, "local", 1, imgsz, name="dyn_smoke_26n_T", data="rgb_proxy",
                             extra=proxy)]
     q["teacher"] = [teacher()]
-    q["local_26n_s0"] = [student("26n", c, 0, "local", epochs, imgsz) for c in ("B", "C", "T", "TL", "S")]
-    q["local_26n_s12"] = [student("26n", c, s, "local", epochs, imgsz)
-                          for s in (1, 2) for c in ("B", "C", "T", "TL", "S")]
+    cfg26 = ("B", "M", "C", "T", "TL", "S")
+    q["local_26n_s0"] = [student("26n", c, 0, "local", epochs, imgsz) for c in cfg26]
+    q["local_26n_s12"] = [student("26n", c, s, "local", epochs, imgsz) for s in (1, 2) for c in cfg26]
     for m in ("v8n", "11n", "v10n", "12n"):
-        q[f"t4_{m}_bc"] = [student(m, c, 0, "t4", epochs, imgsz) for c in ("B", "C")]
+        q[f"t4_{m}_c"] = [student(m, "C", 0, "t4", epochs, imgsz)]
         q[f"t4_{m}_ttl"] = [student(m, c, 0, "t4", epochs, imgsz) for c in ("T", "TL")]
     return q
 
@@ -1062,7 +1089,7 @@ if __name__ == "__main__":
 Run: `python -m pytest tests -v`
 Expected: all tests pass.
 Run: `python scripts/make_dyn_queues.py`
-Expected output lines include `local_26n_s0 5`, `local_26n_s12 10`, `t4_v8n_bc 2`, `teacher 1`.
+Expected output lines include `local_26n_s0 6`, `local_26n_s12 12`, `t4_v8n_c 1`, `t4_v8n_ttl 2`, `teacher 1`.
 
 - [ ] **Step 7: Commit**
 
@@ -1164,7 +1191,7 @@ def boot_diff(ap_a, ap_b):
 
 Metrics: COCO AP50:95 (%) against RGB and IR labels, all images and night images; recall of IR-only
 vehicles (IoU >= 0.5, score >= 0.25, class-agnostic). YOLO26n: seed-paired differences with t 95 % CIs
-and Holm-adjusted p over the five contrasts of each metric. Single-seed models: paired image bootstrap.
+and Holm-adjusted p over the eight contrasts of each metric. Single-seed models: paired image bootstrap.
 """
 import argparse
 import json
@@ -1187,8 +1214,8 @@ MAN = ROOT / "splits"
 RUNS = ROOT / "runs" / "remote"
 OUT = ROOT / "runs" / "analysis" / "dyn"
 METRICS = [("rgb", "all"), ("rgb", "night"), ("ir", "all"), ("ir", "night")]
-CONTRASTS_26N = [("T", "C"), ("TL", "C"), ("TL", "T"), ("T", "S"), ("C", "B")]
-CONTRASTS_1SEED = [("T", "C"), ("TL", "C"), ("TL", "T"), ("C", "B")]
+CONTRASTS_26N = [("T", "C"), ("TL", "C"), ("TL", "T"), ("T", "S"), ("T", "M"), ("TL", "M"), ("C", "M"), ("C", "B")]
+CONTRASTS_1SEED = [("T", "C"), ("TL", "C"), ("TL", "T")]
 
 
 def preds_path(name):
@@ -1437,7 +1464,7 @@ Add `kaggle_ds/` to `.gitignore`.
 ```python
 """Run one DynIRS queue inside a Kaggle or Colab session.
 
-  python scripts/kaggle_session.py --queue configs/queues/dyn/t4_v8n_bc.json \
+  python scripts/kaggle_session.py --queue configs/queues/dyn/t4_v8n_c.json \
       --data-in /kaggle/input/dynirs-dv --omega-in /kaggle/input/dynirs-omega \
       --prev-out /kaggle/input/<previous-session-output> --work /kaggle/working
 
@@ -1495,7 +1522,7 @@ Note: `run_queue.py` skips nothing on its own; a finished job is retrained if re
  "cells": [
   {"cell_type": "markdown", "metadata": {}, "source": ["# DynIRS runner\n", "Settings: GPU T4 x1, Internet on. Inputs: dynirs-code, dynirs-dv, (dynirs-omega), (previous output). Edit QUEUE / ONLY, Run all, then Save Version (Save & Run All) to keep /kaggle/working."]},
   {"cell_type": "code", "metadata": {}, "execution_count": null, "outputs": [], "source": [
-   "QUEUE = 'configs/queues/dyn/t4_v8n_bc.json'\n",
+   "QUEUE = 'configs/queues/dyn/t4_v8n_c.json'\n",
    "ONLY = ''  # e.g. 'dyn_v8n_C_s0'\n",
    "import os, subprocess, sys\n",
    "omega = '/kaggle/input/dynirs-omega' if os.path.exists('/kaggle/input/dynirs-omega') else None\n",
@@ -1578,7 +1605,7 @@ On Kaggle: new notebook from `kaggle/runner.ipynb`, attach `dynirs-code` and `dy
 
 - [ ] **Step 3: Write `docs/superpowers/bench.md` and decide**
 
-Content: a table of measured seconds per epoch (local 26n, local 12n, local 26l, T4 26n), projected hours = epochs × sec / 3600 for each queue, total local hours, total T4 hours, and the decision:
+Content: a table of measured seconds per epoch (local 26n, local 12n, local 26l, T4 26n), projected hours (an M run counts as 2 × a 26n run, its epochs hold twice the images) = epochs × sec / 3600 for each queue, total local hours, total T4 hours, and the decision:
 - Teacher epochs: 50 if 50 × sec(26l) ≤ 12 h, else 30 (change the default of `teacher(epochs=50)` to 30 in `make_dyn_queues.py` and rerun it; chunks become `[10, 20, None]` automatically).
 - T4 total ≤ 40 h (Kaggle 30 h + Colab ≈ 10 h) and local total ≤ 75 h; otherwise apply the cut order (12n, v10n, 26n seed 2) and record which runs were dropped.
 Ask the user to confirm the decision before continuing.
@@ -1596,7 +1623,7 @@ git commit -m "docs: benchmark results and locked experiment matrix"
 
 - [ ] **Step 1: Start the T4 B/C runs (no teacher needed)**
 
-Kaggle session 1: `QUEUE = 'configs/queues/dyn/t4_v8n_bc.json'`. Kaggle session 2 (after session 1 finishes, quota allowing): `t4_11n_bc.json`. Save Version at the end of each session.
+Kaggle sessions, one queue each, in order: `t4_v8n_c.json`, `t4_11n_c.json`, `t4_v10n_c.json`, `t4_12n_c.json` (two queues may share one session if the bench numbers allow). Save Version at the end of each session.
 
 - [ ] **Step 2: Train the teacher locally**
 
@@ -1637,7 +1664,7 @@ kaggle datasets create -p kaggle_ds/dynirs-omega --dir-mode zip
 python scripts/run_queue.py configs/queues/dyn/local_26n_s0.json
 python src/dyn_tables.py --boot 0
 ```
-Read `runs/analysis/dyn/tables.md`. Gate: if neither `dyn_26n_T_s0` nor `dyn_26n_TL_s0` beats `dyn_26n_C_s0` on `rgb_all` or `rgb_night`, stop and report to the user with the table.
+Read `runs/analysis/dyn/tables.md`. Gate: if neither `dyn_26n_T_s0` nor `dyn_26n_TL_s0` beats `dyn_26n_C_s0` on `rgb_all` or `rgb_night`, stop and report to the user with the table. Also report how M compares with C, T and TL (not a gate).
 
 - [ ] **Step 7: Commit the bench / gate notes**
 
@@ -1650,7 +1677,7 @@ git commit -m "docs: teacher acceptance, omega stats and YOLO26n seed-0 gate"
 
 ### Task 11: Remaining runs and final tables
 
-- [ ] **Step 1: T4 runs** — Kaggle / Colab sessions, each with `dynirs-omega` attached, in this order: `t4_v8n_ttl`, `t4_11n_ttl`, `t4_v10n_bc`, `t4_v10n_ttl`, `t4_12n_bc`, `t4_12n_ttl`. After each session, download `/kaggle/working/DynIRS/runs/remote/dyn_*` into the local `runs/remote/`.
+- [ ] **Step 1: T4 runs** — Kaggle / Colab sessions, each with `dynirs-omega` attached, in this order: `t4_v8n_ttl`, `t4_11n_ttl`, `t4_v10n_ttl`, `t4_12n_ttl`. After each session, download `/kaggle/working/DynIRS/runs/remote/dyn_*` into the local `runs/remote/`.
 
 - [ ] **Step 2: Local runs** — in parallel with Step 1:
 ```powershell
@@ -1661,8 +1688,8 @@ python scripts/run_queue.py configs/queues/dyn/local_26n_s12.json
 ```powershell
 python src/dyn_tables.py --boot 1000
 ```
-This runs on the CPU and can take several hours (1000 bootstrap replicates × 4 metrics × 16 single-seed runs); results are cached in `scores.json`, so it can be stopped and restarted.
-Expected: `runs/analysis/dyn/tables.md` with 31 run rows (fewer if the cut order was applied), the YOLO26n contrasts with `n=3`, and bootstrap rows for each single-seed model.
+This runs on the CPU and can take several hours (1000 bootstrap replicates × 4 metrics × 12 single-seed runs); results are cached in `scores.json`, so it can be stopped and restarted.
+Expected: `runs/analysis/dyn/tables.md` with 30 run rows (fewer if the cut order was applied), the YOLO26n contrasts with `n=3`, and bootstrap rows for each single-seed model.
 
 - [ ] **Step 4: Check the success criteria of the spec** (§1) against `tables.md` and write a short summary in `docs/superpowers/results.md`.
 
