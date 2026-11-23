@@ -49,3 +49,9 @@ def test_lane_cmd_uses_session_deadline():
     cmd = ks.lane_cmd(A, deadline=1234.5)
     assert cmd[cmd.index("--deadline") + 1] == "1234.5" and "--budget-h" not in cmd
     assert cmd[-2:] == ["--only", "x"] or cmd[-1] == "x"
+
+
+def test_lane_cmd_without_budget_has_no_deadline():
+    a = type("A", (), {"queue": "q.json", "lanes": 2, "gpus": "0,1", "only": None})()
+    assert "--deadline" not in ks.lane_cmd(a, None)
+    assert ks.lane_cmd(a, 123.0)[-2:] == ["--deadline", "123.0"]

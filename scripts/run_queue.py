@@ -43,11 +43,16 @@ def epochs_done(out):
     last = out / "weights" / "last.pt"
     if not last.exists():
         return None
+    import pickle
+    import zipfile
+
     import torch
 
     try:
         ep = torch.load(last, map_location="cpu", weights_only=False)["epoch"]
-    except Exception as e:  # truncated by a kill, or unreadable: never resume from it
+    except (RuntimeError, EOFError, pickle.UnpicklingError, zipfile.BadZipFile, KeyError) as e:
+        # truncated by a kill, or unreadable: never resume from it. Import/attribute errors (missing
+        # module while unpickling a valid checkpoint) propagate instead of discarding a good file.
         bad = last.with_name(last.name + ".corrupt")
         os.replace(last, bad)
         print(f"WARNING: unusable checkpoint {last} ({type(e).__name__}); moved to {bad.name}, "

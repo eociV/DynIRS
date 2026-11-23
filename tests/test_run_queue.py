@@ -104,3 +104,19 @@ def test_note_current_writes_lane_file(tmp_path, monkeypatch):
     monkeypatch.delenv("DYN_LANE_FILE")
     rq.note_current("job_b", None)  # no env var: no-op
     assert f.read_text() == "job_a chunk 20"
+
+
+def test_import_error_while_loading_checkpoint_keeps_the_file(tmp_path, monkeypatch):
+    import pytest
+
+    out = tmp_path / "out"
+    (out / "weights").mkdir(parents=True)
+    torch.save({"epoch": 3}, out / "weights" / "last.pt")
+
+    def boom(*a, **k):
+        raise ModuleNotFoundError("ultralytics")
+
+    monkeypatch.setattr(torch, "load", boom)
+    with pytest.raises(ModuleNotFoundError):
+        rq.epochs_done(out)
+    assert (out / "weights" / "last.pt").exists()

@@ -48,8 +48,9 @@ def describe_runs(remote):
 
 
 def lane_cmd(a, deadline):
-    cmd = [sys.executable, "scripts/run_lanes.py", a.queue, "--lanes", str(a.lanes), "--gpus", a.gpus,
-           "--deadline", str(deadline)]
+    """deadline: unix timestamp, or None for no budget."""
+    cmd = [sys.executable, "scripts/run_lanes.py", a.queue, "--lanes", str(a.lanes), "--gpus", a.gpus]
+    cmd += ["--deadline", str(deadline)] if deadline else []
     return cmd + (["--only", *a.only] if a.only else [])
 
 
@@ -88,7 +89,8 @@ def main(argv=None):
     env = dict(os.environ, DV_DATA=str(dv))
     subprocess.run([sys.executable, "scripts/warm_cache.py", "--splits", "train", "val", "--mods", *a.mods],
                    cwd=repo, env=env, check=True)
-    return subprocess.run(lane_cmd(a, deadline + a.budget_h * 3600), cwd=repo, env=env).returncode
+    budget = deadline + a.budget_h * 3600 if a.budget_h else None  # 0 / unset = no budget
+    return subprocess.run(lane_cmd(a, budget), cwd=repo, env=env).returncode
 
 
 if __name__ == "__main__":
