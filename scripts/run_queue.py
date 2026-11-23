@@ -93,7 +93,22 @@ def note_current(name, stop):
         Path(f).write_text(f"{name} chunk {stop}")
 
 
-def run_chunk(spec, stop):
+def _run_logged(cmd, cwd, env, log, show):
+    """Run cmd with output to log; with show, also echo it to this console as it arrives."""
+    with open(log, "wb") as fh:
+        if not show:
+            return subprocess.run(cmd, cwd=cwd, env=env, stdout=fh, stderr=subprocess.STDOUT).returncode
+        p = subprocess.Popen(cmd, cwd=cwd, env=env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+        out = sys.stdout.buffer
+        while chunk := p.stdout.read1(65536):
+            fh.write(chunk)
+            fh.flush()
+            out.write(chunk)
+            out.flush()
+        return p.wait()
+
+
+def run_chunk(spec, stop, show=False):
     name = spec["name"]
     ws = RUNS / name / "ws"
     (ws / "src").mkdir(parents=True, exist_ok=True)
@@ -111,8 +126,8 @@ def run_chunk(spec, stop):
     note_current(name, stop)
     log = RUNS / name / f"chunk_{stop}_{time.strftime('%m%d-%H%M%S')}.log"
     t0 = time.time()
-    with open(log, "w") as fh:
-        rc = subprocess.run([sys.executable, "-c", STUB], cwd=ws, env=env, stdout=fh, stderr=subprocess.STDOUT).returncode
+    env.setdefault("PYTHONUNBUFFERED", "1")
+    rc = _run_logged([sys.executable, "-c", STUB], ws, env, log, show)
     print(json.dumps({"name": name, "chunk": stop, "secs": round(time.time() - t0), "rc": rc, "log": str(log)}),
           flush=True)
     return rc == 0
@@ -122,13 +137,14 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("queue")
     ap.add_argument("--only", nargs="*", help="run only the jobs with these names")
+    ap.add_argument("--show", action="store_true", help="also print each job's output to this console")
     a = ap.parse_args()
     RUNS.mkdir(parents=True, exist_ok=True)
     for spec in json.loads(Path(a.queue).read_text()):
         if a.only and spec["name"] not in a.only:
             continue
         for job, stop in plan(spec):
-            if not run_chunk(job, stop):
+            if not run_chunk(job, stop, a.show):
                 print(f"STOP: {spec['name']} chunk {stop} failed", flush=True)
                 return 1
     return 0
