@@ -27,6 +27,7 @@ def main(argv=None):
     ap.add_argument("--only", nargs="*")
     ap.add_argument("--lanes", type=int, default=2)
     ap.add_argument("--gpus", default="0,1")
+    ap.add_argument("--budget-h", type=float, default=11.0, help="stop the lanes after this many hours")
     ap.add_argument("--mods", nargs="+", default=["rgb"], help="modalities to pre-cache (add ir for M or teacher)")
     a = ap.parse_args(argv)
     work = Path(a.work)
@@ -47,7 +48,8 @@ def main(argv=None):
     env = dict(os.environ, DV_DATA=str(dv))
     subprocess.run([sys.executable, "scripts/warm_cache.py", "--splits", "train", "val", "--mods", *a.mods],
                    cwd=repo, env=env, check=True)
-    cmd = [sys.executable, "scripts/run_lanes.py", a.queue, "--lanes", str(a.lanes), "--gpus", a.gpus]
+    cmd = [sys.executable, "scripts/run_lanes.py", a.queue, "--lanes", str(a.lanes), "--gpus", a.gpus,
+           "--budget-h", str(a.budget_h)]
     cmd += ["--only", *a.only] if a.only else []
     return subprocess.run(cmd, cwd=repo, env=env).returncode
 
