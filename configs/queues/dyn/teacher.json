@@ -1,0 +1,39 @@
+[
+ {
+  "name": "dyn_teacher_26l",
+  "kind": "train",
+  "splits": [
+   "train",
+   "val",
+   "test"
+  ],
+  "chunks": [
+   10,
+   20,
+   30,
+   40,
+   null
+  ],
+  "timeout": 0,
+  "train": {
+   "model": "yolo26l.pt",
+   "epochs": 50,
+   "imgsz": 640,
+   "batch": 16,
+   "seed": 0,
+   "deterministic": false,
+   "plots": false,
+   "data": "ir",
+   "workers": 6,
+   "cache": "disk"
+  },
+  "config": {},
+  "inputs": {},
+  "predict": {
+   "weights": "out/dyn_teacher_26l/weights/best.pt",
+   "split": "val",
+   "imgsz": 640,
+   "data_root": "ir"
+  }
+ }
+]

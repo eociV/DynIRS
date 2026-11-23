@@ -1,0 +1,84 @@
+[
+ {
+  "name": "dyn_v8n_T_s1",
+  "kind": "train",
+  "splits": [
+   "train",
+   "val",
+   "test"
+  ],
+  "chunks": [
+   20,
+   null
+  ],
+  "timeout": 0,
+  "train": {
+   "model": "yolov8n.pt",
+   "epochs": 40,
+   "imgsz": 640,
+   "batch": 32,
+   "seed": 1,
+   "deterministic": false,
+   "plots": false,
+   "data": "rgb",
+   "workers": 2,
+   "cache": "disk"
+  },
+  "config": {
+   "paired": true,
+   "load_ir": false,
+   "ir_only_dir": "auto",
+   "llsa": null,
+   "dnc_lambda": 0.0,
+   "tgd_lambda": 0.0,
+   "ir_soft_w_dir": "auto:T"
+  },
+  "inputs": {},
+  "predict": {
+   "weights": "out/dyn_v8n_T_s1/weights/best.pt",
+   "split": "test",
+   "imgsz": 640
+  }
+ },
+ {
+  "name": "dyn_v8n_TL_s1",
+  "kind": "train",
+  "splits": [
+   "train",
+   "val",
+   "test"
+  ],
+  "chunks": [
+   20,
+   null
+  ],
+  "timeout": 0,
+  "train": {
+   "model": "yolov8n.pt",
+   "epochs": 40,
+   "imgsz": 640,
+   "batch": 32,
+   "seed": 1,
+   "deterministic": false,
+   "plots": false,
+   "data": "rgb",
+   "workers": 2,
+   "cache": "disk"
+  },
+  "config": {
+   "paired": true,
+   "load_ir": false,
+   "ir_only_dir": "auto",
+   "llsa": null,
+   "dnc_lambda": 0.0,
+   "tgd_lambda": 0.0,
+   "ir_soft_w_dir": "auto:TL"
+  },
+  "inputs": {},
+  "predict": {
+   "weights": "out/dyn_v8n_TL_s1/weights/best.pt",
+   "split": "test",
+   "imgsz": 640
+  }
+ }
+]

@@ -160,19 +160,40 @@ def _data_yaml(key, job):
         y.write_text(f"path: {DATA / 'zdce'}\ntrain: rgb/train/images\nval: rgb/val/images\n"
                      f"test: rgb/test/images\nnames: {json.dumps(NAMES)}\n")
         return str(y)
+    if key == "mix":  # RGB + IR train images as separate samples (labels from each sibling labels dir)
+        y = DATA / "mix.yaml"
+        y.write_text(f"path: {proc}\ntrain: [rgb/train/images, ir/train/images]\nval: rgb/val/images\n"
+                     f"test: rgb/test/images\nnames: {json.dumps(NAMES)}\n")
+        return str(y)
     raise ValueError(key)
+
+
+def resolve_config(cfg, data, ws):
+    """lowlight.CONFIG values of a job with 'auto' paths resolved against the data root."""
+    cfg = dict(cfg)
+    proc = Path(data) / "proc"
+    if cfg.get("ir_only_dir") == "auto":
+        cfg["ir_only_dir"] = str(proc / "ironly" / "train")
+    if cfg.get("pseudo_file"):
+        cfg["pseudo_file"] = str(Path(ws) / cfg["pseudo_file"])
+    if cfg.get("ir_soft_dir") == "auto":
+        cfg["ir_soft_dir"] = str(proc / "ironly_cls" / "train")
+    d = cfg.get("ir_soft_w_dir")
+    if d:
+        if cfg.get("ir_soft"):
+            raise ValueError("ir_soft (constant) and ir_soft_w_dir (per-box) are mutually exclusive")
+        if d.startswith("auto:"):
+            d = str(proc / "ironly_w" / d[5:] / "train")
+        if not Path(d).is_dir() or not any(Path(d).glob("*.txt")):
+            raise FileNotFoundError(f"no per-box weight files in {d}; run src/omega.py weights first")
+        cfg["ir_soft_w_dir"] = d
+    return cfg
 
 
 def train(job):
     import lowlight as ll
 
-    ll.CONFIG.update(job.get("config", {}))
-    if ll.CONFIG.get("ir_only_dir") == "auto":
-        ll.CONFIG["ir_only_dir"] = str(DATA / "proc" / "ironly" / "train")
-    if ll.CONFIG.get("pseudo_file"):
-        ll.CONFIG["pseudo_file"] = str(WS / ll.CONFIG["pseudo_file"])
-    if ll.CONFIG.get("ir_soft_dir") == "auto":
-        ll.CONFIG["ir_soft_dir"] = str(DATA / "proc" / "ironly_cls" / "train")
+    ll.CONFIG.update(resolve_config(job.get("config", {}), DATA, WS))
     over = dict(job["train"])
     over["data"] = _data_yaml(over["data"], job)
     out = WS / "out"

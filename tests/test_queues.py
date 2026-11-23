@@ -1,0 +1,53 @@
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
+import make_dyn_queues as mq  # noqa: E402
+
+
+def _all(q):
+    return [j for jobs in q.values() for j in jobs]
+
+
+def test_matrix_counts():
+    q = mq.build()
+    train = [j for j in _all(q) if j["kind"] == "train" and not j["name"].startswith("dyn_bench")]
+    names = {j["name"] for j in train}
+    assert "dyn_teacher_26l" in names
+    students = names - {"dyn_teacher_26l"} - {n for n in names if n.startswith("dyn_smoke")}
+    assert sorted(n for n in students if n.startswith("dyn_26n_")) == sorted(
+        f"dyn_26n_{c}_s{s}" for c in ("B", "M", "C", "T", "TL", "S") for s in (0, 1, 2))
+    for m in ("v8n", "11n", "v10n", "12n"):
+        assert sorted(n for n in students if n.startswith(f"dyn_{m}_")) == sorted(
+            f"dyn_{m}_{c}_s{s}" for c in ("C", "T", "TL") for s in (0, 1, 2))
+    assert len(students) == 54
+
+
+def test_job_configs():
+    jobs = {j["name"]: j for j in _all(mq.build())}
+    b, c, t, s = (jobs[f"dyn_26n_{x}_s1"] for x in ("B", "C", "T", "S"))
+    assert b["config"] == {} and b["train"]["data"] == "rgb"
+    mx = jobs["dyn_26n_M_s1"]
+    assert mx["config"] == {} and mx["train"]["data"] == "mix"
+    assert {k: v for k, v in mx["train"].items() if k != "data"} == {k: v for k, v in b["train"].items() if k != "data"}
+    assert c["config"]["ir_soft"] == 0.3 and c["config"]["paired"] is True and c["config"]["load_ir"] is False
+    assert t["config"]["load_ir"] is False
+    assert t["config"]["ir_soft_w_dir"] == "auto:T" and "ir_soft" not in t["config"]
+    assert s["config"]["ir_soft_w_dir"] == "auto:S"
+    for j in (b, c, t, s):
+        assert j["train"]["epochs"] == 40 and j["train"]["imgsz"] == 640 and j["train"]["seed"] == 1
+        assert j["train"]["deterministic"] is False and j["train"]["cache"] == "disk"
+        assert j["train"].get("distill_model") is None
+        assert j["predict"]["split"] == "test" and "test" in j["splits"]
+    assert jobs["dyn_v10n_TL_s0"]["train"]["model"] == "yolov10n.pt"
+    tch = jobs["dyn_teacher_26l"]
+    assert tch["train"]["model"] == "yolo26l.pt" and tch["train"]["data"] == "ir" and tch["train"]["batch"] == 16
+
+
+def test_t4_c_queues_need_no_teacher():
+    q = mq.build()
+    for m in ("v8n", "11n", "v10n", "12n"):
+        for s in (0, 1, 2):
+            assert [j["name"] for j in q[f"t4_{m}_s{s}_c"]] == [f"dyn_{m}_C_s{s}"]
+            assert [j["name"] for j in q[f"t4_{m}_s{s}_ttl"]] == [f"dyn_{m}_T_s{s}", f"dyn_{m}_TL_s{s}"]
+            assert all(j["train"]["seed"] == s for j in q[f"t4_{m}_s{s}_ttl"])

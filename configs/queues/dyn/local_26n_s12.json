@@ -1,0 +1,464 @@
+[
+ {
+  "name": "dyn_26n_B_s1",
+  "kind": "train",
+  "splits": [
+   "train",
+   "val",
+   "test"
+  ],
+  "chunks": [
+   20,
+   null
+  ],
+  "timeout": 0,
+  "train": {
+   "model": "yolo26n.pt",
+   "epochs": 40,
+   "imgsz": 640,
+   "batch": 32,
+   "seed": 1,
+   "deterministic": false,
+   "plots": false,
+   "data": "rgb",
+   "workers": 6,
+   "cache": "disk"
+  },
+  "config": {},
+  "inputs": {},
+  "predict": {
+   "weights": "out/dyn_26n_B_s1/weights/best.pt",
+   "split": "test",
+   "imgsz": 640
+  }
+ },
+ {
+  "name": "dyn_26n_M_s1",
+  "kind": "train",
+  "splits": [
+   "train",
+   "val",
+   "test"
+  ],
+  "chunks": [
+   20,
+   null
+  ],
+  "timeout": 0,
+  "train": {
+   "model": "yolo26n.pt",
+   "epochs": 40,
+   "imgsz": 640,
+   "batch": 32,
+   "seed": 1,
+   "deterministic": false,
+   "plots": false,
+   "data": "mix",
+   "workers": 6,
+   "cache": "disk"
+  },
+  "config": {},
+  "inputs": {},
+  "predict": {
+   "weights": "out/dyn_26n_M_s1/weights/best.pt",
+   "split": "test",
+   "imgsz": 640
+  }
+ },
+ {
+  "name": "dyn_26n_C_s1",
+  "kind": "train",
+  "splits": [
+   "train",
+   "val",
+   "test"
+  ],
+  "chunks": [
+   20,
+   null
+  ],
+  "timeout": 0,
+  "train": {
+   "model": "yolo26n.pt",
+   "epochs": 40,
+   "imgsz": 640,
+   "batch": 32,
+   "seed": 1,
+   "deterministic": false,
+   "plots": false,
+   "data": "rgb",
+   "workers": 6,
+   "cache": "disk"
+  },
+  "config": {
+   "paired": true,
+   "load_ir": false,
+   "ir_only_dir": "auto",
+   "llsa": null,
+   "dnc_lambda": 0.0,
+   "tgd_lambda": 0.0,
+   "ir_soft": 0.3,
+   "ir_soft_dir": "auto"
+  },
+  "inputs": {},
+  "predict": {
+   "weights": "out/dyn_26n_C_s1/weights/best.pt",
+   "split": "test",
+   "imgsz": 640
+  }
+ },
+ {
+  "name": "dyn_26n_T_s1",
+  "kind": "train",
+  "splits": [
+   "train",
+   "val",
+   "test"
+  ],
+  "chunks": [
+   20,
+   null
+  ],
+  "timeout": 0,
+  "train": {
+   "model": "yolo26n.pt",
+   "epochs": 40,
+   "imgsz": 640,
+   "batch": 32,
+   "seed": 1,
+   "deterministic": false,
+   "plots": false,
+   "data": "rgb",
+   "workers": 6,
+   "cache": "disk"
+  },
+  "config": {
+   "paired": true,
+   "load_ir": false,
+   "ir_only_dir": "auto",
+   "llsa": null,
+   "dnc_lambda": 0.0,
+   "tgd_lambda": 0.0,
+   "ir_soft_w_dir": "auto:T"
+  },
+  "inputs": {},
+  "predict": {
+   "weights": "out/dyn_26n_T_s1/weights/best.pt",
+   "split": "test",
+   "imgsz": 640
+  }
+ },
+ {
+  "name": "dyn_26n_TL_s1",
+  "kind": "train",
+  "splits": [
+   "train",
+   "val",
+   "test"
+  ],
+  "chunks": [
+   20,
+   null
+  ],
+  "timeout": 0,
+  "train": {
+   "model": "yolo26n.pt",
+   "epochs": 40,
+   "imgsz": 640,
+   "batch": 32,
+   "seed": 1,
+   "deterministic": false,
+   "plots": false,
+   "data": "rgb",
+   "workers": 6,
+   "cache": "disk"
+  },
+  "config": {
+   "paired": true,
+   "load_ir": false,
+   "ir_only_dir": "auto",
+   "llsa": null,
+   "dnc_lambda": 0.0,
+   "tgd_lambda": 0.0,
+   "ir_soft_w_dir": "auto:TL"
+  },
+  "inputs": {},
+  "predict": {
+   "weights": "out/dyn_26n_TL_s1/weights/best.pt",
+   "split": "test",
+   "imgsz": 640
+  }
+ },
+ {
+  "name": "dyn_26n_S_s1",
+  "kind": "train",
+  "splits": [
+   "train",
+   "val",
+   "test"
+  ],
+  "chunks": [
+   20,
+   null
+  ],
+  "timeout": 0,
+  "train": {
+   "model": "yolo26n.pt",
+   "epochs": 40,
+   "imgsz": 640,
+   "batch": 32,
+   "seed": 1,
+   "deterministic": false,
+   "plots": false,
+   "data": "rgb",
+   "workers": 6,
+   "cache": "disk"
+  },
+  "config": {
+   "paired": true,
+   "load_ir": false,
+   "ir_only_dir": "auto",
+   "llsa": null,
+   "dnc_lambda": 0.0,
+   "tgd_lambda": 0.0,
+   "ir_soft_w_dir": "auto:S"
+  },
+  "inputs": {},
+  "predict": {
+   "weights": "out/dyn_26n_S_s1/weights/best.pt",
+   "split": "test",
+   "imgsz": 640
+  }
+ },
+ {
+  "name": "dyn_26n_B_s2",
+  "kind": "train",
+  "splits": [
+   "train",
+   "val",
+   "test"
+  ],
+  "chunks": [
+   20,
+   null
+  ],
+  "timeout": 0,
+  "train": {
+   "model": "yolo26n.pt",
+   "epochs": 40,
+   "imgsz": 640,
+   "batch": 32,
+   "seed": 2,
+   "deterministic": false,
+   "plots": false,
+   "data": "rgb",
+   "workers": 6,
+   "cache": "disk"
+  },
+  "config": {},
+  "inputs": {},
+  "predict": {
+   "weights": "out/dyn_26n_B_s2/weights/best.pt",
+   "split": "test",
+   "imgsz": 640
+  }
+ },
+ {
+  "name": "dyn_26n_M_s2",
+  "kind": "train",
+  "splits": [
+   "train",
+   "val",
+   "test"
+  ],
+  "chunks": [
+   20,
+   null
+  ],
+  "timeout": 0,
+  "train": {
+   "model": "yolo26n.pt",
+   "epochs": 40,
+   "imgsz": 640,
+   "batch": 32,
+   "seed": 2,
+   "deterministic": false,
+   "plots": false,
+   "data": "mix",
+   "workers": 6,
+   "cache": "disk"
+  },
+  "config": {},
+  "inputs": {},
+  "predict": {
+   "weights": "out/dyn_26n_M_s2/weights/best.pt",
+   "split": "test",
+   "imgsz": 640
+  }
+ },
+ {
+  "name": "dyn_26n_C_s2",
+  "kind": "train",
+  "splits": [
+   "train",
+   "val",
+   "test"
+  ],
+  "chunks": [
+   20,
+   null
+  ],
+  "timeout": 0,
+  "train": {
+   "model": "yolo26n.pt",
+   "epochs": 40,
+   "imgsz": 640,
+   "batch": 32,
+   "seed": 2,
+   "deterministic": false,
+   "plots": false,
+   "data": "rgb",
+   "workers": 6,
+   "cache": "disk"
+  },
+  "config": {
+   "paired": true,
+   "load_ir": false,
+   "ir_only_dir": "auto",
+   "llsa": null,
+   "dnc_lambda": 0.0,
+   "tgd_lambda": 0.0,
+   "ir_soft": 0.3,
+   "ir_soft_dir": "auto"
+  },
+  "inputs": {},
+  "predict": {
+   "weights": "out/dyn_26n_C_s2/weights/best.pt",
+   "split": "test",
+   "imgsz": 640
+  }
+ },
+ {
+  "name": "dyn_26n_T_s2",
+  "kind": "train",
+  "splits": [
+   "train",
+   "val",
+   "test"
+  ],
+  "chunks": [
+   20,
+   null
+  ],
+  "timeout": 0,
+  "train": {
+   "model": "yolo26n.pt",
+   "epochs": 40,
+   "imgsz": 640,
+   "batch": 32,
+   "seed": 2,
+   "deterministic": false,
+   "plots": false,
+   "data": "rgb",
+   "workers": 6,
+   "cache": "disk"
+  },
+  "config": {
+   "paired": true,
+   "load_ir": false,
+   "ir_only_dir": "auto",
+   "llsa": null,
+   "dnc_lambda": 0.0,
+   "tgd_lambda": 0.0,
+   "ir_soft_w_dir": "auto:T"
+  },
+  "inputs": {},
+  "predict": {
+   "weights": "out/dyn_26n_T_s2/weights/best.pt",
+   "split": "test",
+   "imgsz": 640
+  }
+ },
+ {
+  "name": "dyn_26n_TL_s2",
+  "kind": "train",
+  "splits": [
+   "train",
+   "val",
+   "test"
+  ],
+  "chunks": [
+   20,
+   null
+  ],
+  "timeout": 0,
+  "train": {
+   "model": "yolo26n.pt",
+   "epochs": 40,
+   "imgsz": 640,
+   "batch": 32,
+   "seed": 2,
+   "deterministic": false,
+   "plots": false,
+   "data": "rgb",
+   "workers": 6,
+   "cache": "disk"
+  },
+  "config": {
+   "paired": true,
+   "load_ir": false,
+   "ir_only_dir": "auto",
+   "llsa": null,
+   "dnc_lambda": 0.0,
+   "tgd_lambda": 0.0,
+   "ir_soft_w_dir": "auto:TL"
+  },
+  "inputs": {},
+  "predict": {
+   "weights": "out/dyn_26n_TL_s2/weights/best.pt",
+   "split": "test",
+   "imgsz": 640
+  }
+ },
+ {
+  "name": "dyn_26n_S_s2",
+  "kind": "train",
+  "splits": [
+   "train",
+   "val",
+   "test"
+  ],
+  "chunks": [
+   20,
+   null
+  ],
+  "timeout": 0,
+  "train": {
+   "model": "yolo26n.pt",
+   "epochs": 40,
+   "imgsz": 640,
+   "batch": 32,
+   "seed": 2,
+   "deterministic": false,
+   "plots": false,
+   "data": "rgb",
+   "workers": 6,
+   "cache": "disk"
+  },
+  "config": {
+   "paired": true,
+   "load_ir": false,
+   "ir_only_dir": "auto",
+   "llsa": null,
+   "dnc_lambda": 0.0,
+   "tgd_lambda": 0.0,
+   "ir_soft_w_dir": "auto:S"
+  },
+  "inputs": {},
+  "predict": {
+   "weights": "out/dyn_26n_S_s2/weights/best.pt",
+   "split": "test",
+   "imgsz": 640
+  }
+ }
+]
