@@ -82,6 +82,8 @@ def mean_match(raw, target=TARGET, lo=FLOOR, hi=CEIL, tol=1e-4):
             b = s
         if abs(f(b) - target) <= tol:
             break
+    if abs(f(b) - target) > tol:
+        raise ValueError(f"mean matching did not converge: mean {f(b):.5f} vs target {target}")
     return np.clip(raw * b, lo, hi), b
 
 
@@ -123,6 +125,10 @@ def build_weights(signals, variant, seed=0):
     arr = np.array([x for k in ids for x in signals[k]], float).reshape(-1, 2)
     raw = raw_weights(arr[:, 0], arr[:, 1], variant)
     w, s = mean_match(raw)
+    w = np.round(w, 4)  # the precision write_weights stores
+    if abs(w.mean() - TARGET) > 1e-3 or w.min() < FLOOR - 1e-9 or w.max() > CEIL + 1e-9:
+        raise ValueError(f"weights out of spec after quantisation: mean {w.mean():.5f}, "
+                         f"range [{w.min():.4f}, {w.max():.4f}]")
     if variant == "S":
         w = shuffle(w, seed)
     out, j = {}, 0
@@ -132,7 +138,10 @@ def build_weights(signals, variant, seed=0):
     hist, edges = np.histogram(w, bins=20, range=(0, 1))
     stats = {"variant": variant, "n_boxes": int(len(w)), "scale": float(s), "mean": float(w.mean()),
              "frac_floor": float(np.mean(w <= FLOOR + 1e-9)), "frac_ceil": float(np.mean(w >= CEIL - 1e-9)),
-             "frac_c_zero": float(np.mean(arr[:, 0] == 0)), "hist": hist.tolist(),
+             "frac_c_zero": float(np.mean(arr[:, 0] == 0)),
+             "std": float(w.std()), "iqr": float(np.subtract(*np.percentile(w, [75, 25]))),
+             "frac_near_target": float(np.mean(np.abs(w - TARGET) <= 0.05)),
+             "c_std": float(arr[:, 0].std()), "c_frac_ge_0_9": float(np.mean(arr[:, 0] >= 0.9)), "hist": hist.tolist(),
              "edges": edges.round(2).tolist()}
     return out, stats
 
@@ -185,7 +194,7 @@ def main(argv=None):
         weights, stats = build_weights(sig, a.variant)
         write_weights(proc, a.variant, load_ironly(proc), weights)
         (proc / "stats" / f"omega_{a.variant}.json").write_text(json.dumps(stats, indent=1))
-        print(json.dumps({k: stats[k] for k in ("variant", "n_boxes", "scale", "mean", "frac_floor", "frac_ceil")}))
+        print(json.dumps({k: stats[k] for k in ("variant", "n_boxes", "scale", "mean", "frac_floor", "frac_ceil", "std", "iqr", "frac_near_target", "c_std", "c_frac_ge_0_9")}))
 
 
 if __name__ == "__main__":

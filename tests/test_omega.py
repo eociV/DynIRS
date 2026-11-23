@@ -136,3 +136,23 @@ def test_cli_weights(tmp_path):
     st = json.loads((proc / "stats" / "omega_TL.json").read_text())
     assert abs(st["mean"] - 0.3) <= 1e-3
     assert (proc / "ironly_w" / "TL" / "train" / "b.txt").exists()
+
+
+def test_mean_match_raises_when_tolerance_not_met():
+    with pytest.raises(ValueError):
+        om.mean_match(np.linspace(0.1, 1, 50), tol=-1.0)
+
+
+def test_build_weights_rejects_bad_mean(monkeypatch):
+    monkeypatch.setattr(om, "mean_match", lambda raw: (np.full(len(raw), 0.5), 1.0))
+    with pytest.raises(ValueError):
+        om.build_weights({"a": [[0.9, 0.1], [0.2, 0.9]]}, "T")
+
+
+def test_build_weights_spread_stats():
+    sig = {"a": [[0.95, 0.1], [0.2, 0.9], [0.5, 0.5], [0.99, 0.3]]}
+    _, st = om.build_weights(sig, "T")
+    for k in ("std", "iqr", "frac_near_target", "c_std", "c_frac_ge_0_9"):
+        assert k in st
+    assert st["c_frac_ge_0_9"] == 0.5 and st["std"] > 0 and st["iqr"] >= 0
+    assert 0 <= st["frac_near_target"] <= 1
