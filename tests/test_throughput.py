@@ -37,3 +37,10 @@ def test_warm_cache_matches_cv2_and_is_idempotent(tmp_path):
 def test_split_lanes_round_robin():
     assert run_lanes.split_lanes(["a", "b", "c", "d", "e"], 2) == [["a", "c", "e"], ["b", "d"]]
     assert run_lanes.split_lanes(["a"], 2) == [["a"], []]
+
+
+def test_combined_returncode_does_not_mask_failures():
+    assert run_lanes.combined_returncode([0, 0]) == 0
+    assert run_lanes.combined_returncode([0, -9]) == -9
+    assert run_lanes.combined_returncode([1, 0]) == 1
+    assert run_lanes.combined_returncode([]) == 0

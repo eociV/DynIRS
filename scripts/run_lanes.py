@@ -19,6 +19,11 @@ def split_lanes(names, n):
     return [names[i::n] for i in range(n)]
 
 
+def combined_returncode(codes):
+    """0 only if every lane succeeded; otherwise the first non-zero code (sign preserved)."""
+    return next((c for c in codes if c != 0), 0)
+
+
 def main(argv=None):
     ap = argparse.ArgumentParser()
     ap.add_argument("queue")
@@ -34,7 +39,7 @@ def main(argv=None):
             env = dict(os.environ, CUDA_VISIBLE_DEVICES=gpus[k % len(gpus)])
             procs.append(subprocess.Popen([sys.executable, str(ROOT / "scripts" / "run_queue.py"), a.queue,
                                            "--only", *lane], cwd=ROOT, env=env))
-    return max(p.wait() for p in procs) if procs else 0
+    return combined_returncode([p.wait() for p in procs])
 
 
 if __name__ == "__main__":
