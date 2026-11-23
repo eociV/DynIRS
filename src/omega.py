@@ -87,3 +87,106 @@ def mean_match(raw, target=TARGET, lo=FLOOR, hi=CEIL, tol=1e-4):
 
 def shuffle(w, seed=0):
     return np.random.default_rng(seed).permutation(np.asarray(w, float))
+
+
+def load_ironly(proc):
+    out = {}
+    for f in sorted((Path(proc) / "ironly_cls" / "train").glob("*.txt")):
+        a = np.loadtxt(f, ndmin=2, dtype=np.float64) if f.stat().st_size else np.zeros((0, 5))
+        out[f.stem] = a.reshape(-1, 5)
+    return out
+
+
+def compute_signals(proc, predict_fn, batch=32):
+    import cv2
+
+    proc = Path(proc)
+    boxes = load_ironly(proc)
+    sig = {k: [] for k in boxes}
+    ids = [k for k in boxes if len(boxes[k])]
+    for i in range(0, len(ids), batch):
+        chunk = ids[i:i + batch]
+        preds = predict_fn([str(proc / "ir" / "train" / "images" / f"{k}.jpg") for k in chunk])
+        for k, (pb, ps) in zip(chunk, preds):
+            xy = xywhn_to_xyxy(boxes[k][:, 1:5])
+            rgb = cv2.imread(str(proc / "rgb" / "train" / "images" / f"{k}.jpg"), cv2.IMREAD_COLOR)[..., ::-1]
+            c = teacher_conf(xy, pb, ps)
+            v = box_luminance(rgb, xy)
+            sig[k] = [[round(float(a), 5), round(float(b), 5)] for a, b in zip(c, v)]
+        print(f"signals {min(i + batch, len(ids))}/{len(ids)}", flush=True)
+    return sig
+
+
+def build_weights(signals, variant, seed=0):
+    ids = sorted(signals)
+    n = [len(signals[k]) for k in ids]
+    arr = np.array([x for k in ids for x in signals[k]], float).reshape(-1, 2)
+    raw = raw_weights(arr[:, 0], arr[:, 1], variant)
+    w, s = mean_match(raw)
+    if variant == "S":
+        w = shuffle(w, seed)
+    out, j = {}, 0
+    for k, m in zip(ids, n):
+        out[k] = w[j:j + m]
+        j += m
+    hist, edges = np.histogram(w, bins=20, range=(0, 1))
+    stats = {"variant": variant, "n_boxes": int(len(w)), "scale": float(s), "mean": float(w.mean()),
+             "frac_floor": float(np.mean(w <= FLOOR + 1e-9)), "frac_ceil": float(np.mean(w >= CEIL - 1e-9)),
+             "frac_c_zero": float(np.mean(arr[:, 0] == 0)), "hist": hist.tolist(),
+             "edges": edges.round(2).tolist()}
+    return out, stats
+
+
+def write_weights(proc, variant, boxes, weights):
+    out = Path(proc) / "ironly_w" / variant / "train"
+    out.mkdir(parents=True, exist_ok=True)
+    for k in sorted(boxes):
+        b, w = boxes[k], weights.get(k, np.zeros(0))
+        if len(b) != len(w):
+            raise ValueError(f"{k}: {len(b)} boxes but {len(w)} weights")
+        (out / f"{k}.txt").write_text("".join(
+            f"{int(r[0])} {r[1]:.6f} {r[2]:.6f} {r[3]:.6f} {r[4]:.6f} {x:.4f}\n" for r, x in zip(b, w)))
+    return out
+
+
+def _ultralytics_predictor(teacher, imgsz, batch):
+    from ultralytics import YOLO
+
+    m = YOLO(str(teacher))
+
+    def fn(paths):
+        res = m.predict(source=paths, imgsz=imgsz, conf=0.001, max_det=300, half=True, verbose=False, batch=batch)
+        return [(r.boxes.xyxy.cpu().numpy(), r.boxes.conf.cpu().numpy()) for r in res]
+
+    return fn
+
+
+def main(argv=None):
+    ap = argparse.ArgumentParser()
+    sub = ap.add_subparsers(dest="cmd", required=True)
+    s = sub.add_parser("signals")
+    s.add_argument("--proc", required=True)
+    s.add_argument("--teacher", required=True)
+    s.add_argument("--imgsz", type=int, default=640)
+    s.add_argument("--batch", type=int, default=32)
+    w = sub.add_parser("weights")
+    w.add_argument("--proc", required=True)
+    w.add_argument("--variant", choices=VARIANTS, required=True)
+    a = ap.parse_args(argv)
+    proc = Path(a.proc)
+    if a.cmd == "signals":
+        sig = compute_signals(proc, _ultralytics_predictor(a.teacher, a.imgsz, a.batch), a.batch)
+        (proc / "stats" / "omega_signals.json").write_text(json.dumps(sig))
+        flat = np.array([x for v in sig.values() for x in v]).reshape(-1, 2)
+        print(json.dumps({"n_boxes": len(flat), "c_mean": float(flat[:, 0].mean()),
+                          "frac_c_zero": float(np.mean(flat[:, 0] == 0)), "v_mean": float(flat[:, 1].mean())}))
+    else:
+        sig = json.loads((proc / "stats" / "omega_signals.json").read_text())
+        weights, stats = build_weights(sig, a.variant)
+        write_weights(proc, a.variant, load_ironly(proc), weights)
+        (proc / "stats" / f"omega_{a.variant}.json").write_text(json.dumps(stats, indent=1))
+        print(json.dumps({k: stats[k] for k in ("variant", "n_boxes", "scale", "mean", "frac_floor", "frac_ceil")}))
+
+
+if __name__ == "__main__":
+    main()
