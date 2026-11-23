@@ -156,3 +156,42 @@ def test_build_weights_spread_stats():
         assert k in st
     assert st["c_frac_ge_0_9"] == 0.5 and st["std"] > 0 and st["iqr"] >= 0
     assert 0 <= st["frac_near_target"] <= 1
+
+
+def test_rank_weights_uniform_mean_and_ties():
+    w = om.rank_weights([3.0, 1.0, 2.0, 5.0, 4.0])
+    assert np.allclose(w, [0.30, 0.05, 0.175, 0.55, 0.425])
+    assert abs(w.mean() - om.TARGET) < 1e-12
+    t = om.rank_weights([1.0, 1.0, 2.0])  # tied pair shares the mean of ranks 0 and 1
+    assert np.allclose(t, [0.175, 0.175, 0.55])
+    assert np.allclose(om.rank_weights([7.0]), [0.3])
+
+
+def test_rank_variants_share_one_distribution():
+    rng = np.random.default_rng(1)
+    n = 500
+    sig = {f"im{i}": rng.random((5, 2)).tolist() for i in range(n // 5)}
+    areas = {k: rng.integers(100, 5000, 5).astype(float).tolist() for k in sig}
+    out = {}
+    for v in ("RT", "RD", "RB", "RA", "RS"):
+        w, st = om.build_weights(sig, v, areas=areas)
+        flat = np.concatenate([w[k] for k in sorted(w)])
+        assert abs(flat.mean() - om.TARGET) < 1e-3 and flat.min() >= 0.05 - 1e-9 and flat.max() <= 0.55 + 1e-9
+        assert st["scale"] is None
+        out[v] = flat
+    assert np.allclose(np.sort(out["RT"]), np.sort(out["RS"]), atol=1e-4)
+    c = np.array([x[0] for k in sorted(sig) for x in sig[k]])
+    v = np.array([x[1] for k in sorted(sig) for x in sig[k]])
+    assert np.all(np.diff(out["RT"][np.argsort(c)]) >= -1e-9)  # higher c, higher weight
+    assert np.all(np.diff(out["RB"][np.argsort(v)]) >= -1e-9)
+    assert np.allclose(out["RD"] + out["RB"], 0.6, atol=2e-4)  # darkness is the reversed brightness order
+
+
+def test_rank_area_needs_areas():
+    with pytest.raises(ValueError):
+        om.build_weights({"a": [[0.5, 0.5], [0.2, 0.1]]}, "RA")
+
+
+def test_box_areas():
+    b = {"x": np.array([[0, 0.5, 0.5, 0.1, 0.2]])}
+    assert np.allclose(om.box_areas(b)["x"], [0.1 * 640 * 0.2 * 512])

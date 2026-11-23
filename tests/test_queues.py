@@ -11,7 +11,7 @@ def _all(q):
 
 def test_matrix_counts():
     q = mq.build()
-    train = [j for j in _all(q) if j["kind"] == "train" and not j["name"].startswith("dyn_bench")]
+    train = [j for j in _all(q) if j["kind"] == "train" and not j["name"].startswith(("dyn_bench", "dyn_scr"))]
     names = {j["name"] for j in train}
     assert "dyn_teacher_26l" in names
     students = names - {"dyn_teacher_26l"} - {n for n in names if n.startswith("dyn_smoke")}
@@ -63,3 +63,19 @@ def test_smoke_tl_covers_all_models_and_no_smoke_t():
         assert j["config"]["ir_soft_w_dir"] == "auto:TL" and j["train"]["data"] == "rgb_proxy"
         assert j["train"]["epochs"] == 1 and j["proxy_fraction"] == 0.012
     assert all(j["config"]["ir_soft"] == 0.3 for j in q["smoke"])
+
+
+def test_screen_queues():
+    q = mq.build()
+    for s in (0, 1, 2):
+        jobs = q[f"t4_screen_s{s}"]
+        assert [j["name"] for j in jobs] == [f"dyn_scr_{c}_s{s}" for c in ("B", "C", "RT", "RD", "RB", "RA", "RS")]
+        for j in jobs:
+            t = j["train"]
+            assert (t["epochs"], t["imgsz"], t["batch"], t["seed"], t["data"]) == (15, 704, 32, s, "rgb_proxy")
+            assert j["proxy_fraction"] == 0.2 and "proxy_seed" not in j  # one fixed subset for every run
+            assert j["predict"]["split"] == "val" and j["predict"]["imgsz"] == 704
+        by = {j["name"].split("_")[2]: j for j in jobs}
+        assert by["B"]["config"] == {} and by["C"]["config"]["ir_soft"] == 0.3
+        for v in ("RT", "RD", "RB", "RA", "RS"):
+            assert by[v]["config"]["ir_soft_w_dir"] == f"auto:{v}" and by[v]["config"]["load_ir"] is False

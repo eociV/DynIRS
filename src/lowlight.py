@@ -217,8 +217,9 @@ class IRPairDataset(YOLODataset):
         if d:
             p = Path(d) / f"{Path(label['im_file']).stem}.txt"
             if p.exists() and p.stat().st_size:
-                a = np.loadtxt(p, ndmin=2, dtype=np.float32)
-                label["bboxes"] = np.concatenate([label["bboxes"], a[:, 1:5]], 0)
+                # float64: in float32, a 4-decimal weight like 0.3185 rounds to the next 1/1000 level
+                a = np.loadtxt(p, ndmin=2, dtype=np.float64)
+                label["bboxes"] = np.concatenate([label["bboxes"], a[:, 1:5].astype(label["bboxes"].dtype)], 0)
                 label["cls"] = np.concatenate(
                     [label["cls"], encode_wsoft(a[:, 0], a[:, 5]).reshape(-1, 1).astype(label["cls"].dtype)], 0)
             return super().update_labels_info(label)

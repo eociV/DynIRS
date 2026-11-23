@@ -32,7 +32,7 @@ def main(argv=None):
         if f.stat().st_size:
             allowed |= set(np.round(np.loadtxt(f, ndmin=2)[:, 5] * 1000).astype(int).tolist())
     tr = ll.LLTrainer(overrides=dict(model="yolo26n.pt", data=str(data / "rgb.yaml"), imgsz=640, batch=16,
-                                     workers=4, epochs=1, plots=False))
+                                     workers=0, epochs=1, plots=False))  # 0: the check needs no speed, and Windows worker shared memory can fail
     tr._setup_train()
     seen = 0
     for i, batch in enumerate(tr.train_loader):

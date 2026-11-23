@@ -5,8 +5,13 @@ Signals per IR-only train box i (computed once, offline):
        IoU >= MATCH_IOU to box i, class-agnostic; 0 if none.
   v_i  RGB visibility: mean BT.601 luminance of the RGB pixels inside box i, scaled to [0, 1].
 Variants: T = c, TL = c * (1 - v)**gamma, S = T values permuted across boxes (seed 0).
-Every variant is scaled by one constant s and clipped to [FLOOR, CEIL] so that the train-set mean
-equals TARGET (the constant weight of the original recipe).
+These are scaled by one constant s and clipped to [FLOOR, CEIL] so that the train-set mean equals
+TARGET (the constant weight of the original recipe).
+
+Rank variants share one weight distribution, uniform on [RANK_LO, RANK_HI] (mean TARGET), and
+differ only in which boxes get the high weights: the boxes are ranked by a key and the rank is mapped
+linearly onto the interval (ties share their mean rank). Keys: RT teacher confidence c, RD darkness
+1 - v, RB brightness v, RA box area, RS a random order (seed 0).
 """
 
 from __future__ import annotations
@@ -25,7 +30,9 @@ from dv_pairs import iou_matrix  # noqa: E402
 W, H = 640, 512
 FLOOR, CEIL, TARGET = 0.05, 1.0, 0.3
 MATCH_IOU = 0.5
-VARIANTS = ("T", "TL", "S")
+RANK_KEYS = {"RT": "teacher confidence", "RD": "darkness", "RB": "brightness", "RA": "area", "RS": "random"}
+RANK_LO, RANK_HI = 0.05, 0.55
+VARIANTS = ("T", "TL", "S") + tuple(RANK_KEYS)
 
 
 def xywhn_to_xyxy(a):
@@ -64,6 +71,32 @@ def raw_weights(c, v, variant, gamma=1.0):
     if variant == "TL":
         return c * (1.0 - v) ** gamma
     raise ValueError(f"unknown variant {variant}")
+
+
+def rank_weights(key, lo=RANK_LO, hi=RANK_HI):
+    """Map the ranks of key linearly onto [lo, hi]; tied keys get the weight of their mean rank."""
+    key = np.asarray(key, float)
+    n = len(key)
+    if n < 2:
+        return np.full(n, (lo + hi) / 2)
+    _, inv, cnt = np.unique(key, return_inverse=True, return_counts=True)
+    first = np.concatenate([[0], np.cumsum(cnt)[:-1]])  # rank of the first member of each tie group
+    r = (first + (cnt - 1) / 2)[inv]
+    return lo + (hi - lo) * r / (n - 1)
+
+
+def rank_key(variant, c, v, area, seed=0):
+    c, v, area = (np.asarray(x, float) for x in (c, v, area))
+    keys = {"RT": lambda: c, "RD": lambda: 1.0 - v, "RB": lambda: v, "RA": lambda: area,
+            "RS": lambda: np.random.default_rng(seed).permutation(len(c)).astype(float)}
+    if variant not in keys:
+        raise ValueError(f"unknown rank variant {variant}")
+    return keys[variant]()
+
+
+def box_areas(boxes):
+    """{image id: [pixel area of each IR-only box]} from load_ironly rows (cls, x, y, w, h normalised)."""
+    return {k: (b[:, 3] * W * b[:, 4] * H).tolist() for k, b in boxes.items()}
 
 
 def mean_match(raw, target=TARGET, lo=FLOOR, hi=CEIL, tol=1e-4):
@@ -119,12 +152,19 @@ def compute_signals(proc, predict_fn, batch=32):
     return sig
 
 
-def build_weights(signals, variant, seed=0):
+def build_weights(signals, variant, seed=0, areas=None):
     ids = sorted(signals)
     n = [len(signals[k]) for k in ids]
     arr = np.array([x for k in ids for x in signals[k]], float).reshape(-1, 2)
-    raw = raw_weights(arr[:, 0], arr[:, 1], variant)
-    w, s = mean_match(raw)
+    if variant in RANK_KEYS:
+        if variant == "RA" and areas is None:
+            raise ValueError("variant RA needs the box areas")
+        a = np.array([x for k in ids for x in areas[k]], float) if areas is not None else np.zeros(len(arr))
+        if len(a) != len(arr):
+            raise ValueError(f"{len(a)} areas for {len(arr)} boxes")
+        w, s = rank_weights(rank_key(variant, arr[:, 0], arr[:, 1], a, seed)), None
+    else:
+        w, s = mean_match(raw_weights(arr[:, 0], arr[:, 1], variant))
     w = np.round(w, 4)  # the precision write_weights stores
     if abs(w.mean() - TARGET) > 1e-3 or w.min() < FLOOR - 1e-9 or w.max() > CEIL + 1e-9:
         raise ValueError(f"weights out of spec after quantisation: mean {w.mean():.5f}, "
@@ -136,7 +176,7 @@ def build_weights(signals, variant, seed=0):
         out[k] = w[j:j + m]
         j += m
     hist, edges = np.histogram(w, bins=20, range=(0, 1))
-    stats = {"variant": variant, "n_boxes": int(len(w)), "scale": float(s), "mean": float(w.mean()),
+    stats = {"variant": variant, "n_boxes": int(len(w)), "scale": None if s is None else float(s), "mean": float(w.mean()),
              "frac_floor": float(np.mean(w <= FLOOR + 1e-9)), "frac_ceil": float(np.mean(w >= CEIL - 1e-9)),
              "frac_c_zero": float(np.mean(arr[:, 0] == 0)),
              "std": float(w.std()), "iqr": float(np.subtract(*np.percentile(w, [75, 25]))),
@@ -191,8 +231,9 @@ def main(argv=None):
                           "frac_c_zero": float(np.mean(flat[:, 0] == 0)), "v_mean": float(flat[:, 1].mean())}))
     else:
         sig = json.loads((proc / "stats" / "omega_signals.json").read_text())
-        weights, stats = build_weights(sig, a.variant)
-        write_weights(proc, a.variant, load_ironly(proc), weights)
+        boxes = load_ironly(proc)
+        weights, stats = build_weights(sig, a.variant, areas=box_areas(boxes))
+        write_weights(proc, a.variant, boxes, weights)
         (proc / "stats" / f"omega_{a.variant}.json").write_text(json.dumps(stats, indent=1))
         print(json.dumps({k: stats[k] for k in ("variant", "n_boxes", "scale", "mean", "frac_floor", "frac_ceil", "std", "iqr", "frac_near_target", "c_std", "c_frac_ge_0_9")}))
 

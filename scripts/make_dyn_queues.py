@@ -2,7 +2,8 @@
 
   python scripts/make_dyn_queues.py [--epochs 40] [--imgsz 640]
 
-Queues: bench, smoke, smoke_tl, teacher, local_26n_s0, local_26n_s12, t4_<model>_s<seed>_c, t4_<model>_s<seed>_ttl.
+Queues: bench, smoke, smoke_tl, teacher, local_26n_s0, local_26n_s12, t4_<model>_s<seed>_c, t4_<model>_s<seed>_ttl,
+t4_screen_s<seed> (omega screening: YOLO26n, fixed 20 % train subset, 15 epochs, 704 px, scored on val).
 """
 import argparse
 import json
@@ -20,6 +21,10 @@ CONFIGS = {
     "TL": dict(SOFT, ir_soft_w_dir="auto:TL"),
     "S": dict(SOFT, ir_soft_w_dir="auto:S"),
 }
+RANK = ("RT", "RD", "RB", "RA", "RS")  # rank-mapped omega variants, see src/omega.py
+CONFIGS.update({v: dict(SOFT, ir_soft_w_dir=f"auto:{v}") for v in RANK})
+SCREEN = ("B", "C") + RANK
+SCREEN_RUN = {"epochs": 15, "imgsz": 704, "proxy_fraction": 0.2}  # the proxy protocol of the IRS-YOLO26n paper
 DATA_KEY = {"M": "mix"}
 HW = {"local": {"workers": 4, "cache": "disk"}, "t4": {"workers": 2, "cache": "disk"}}  # t4: 2 lanes share 4 CPUs
 
@@ -70,6 +75,13 @@ def build(epochs=40, imgsz=640):
         for s in (0, 1, 2):
             q[f"t4_{m}_s{s}_c"] = [student(m, "C", s, "t4", epochs, imgsz)]
             q[f"t4_{m}_s{s}_ttl"] = [student(m, c, s, "t4", epochs, imgsz) for c in ("T", "TL")]
+    for s in (0, 1, 2):
+        jobs = [student("26n", c, s, "t4", SCREEN_RUN["epochs"], SCREEN_RUN["imgsz"], name=f"dyn_scr_{c}_s{s}",
+                        data="rgb_proxy", extra={"proxy_fraction": SCREEN_RUN["proxy_fraction"]}) for c in SCREEN]
+        for j in jobs:
+            j["splits"] = ["train", "val"]
+            j["predict"]["split"] = "val"
+        q[f"t4_screen_s{s}"] = jobs
     return q
 
 
