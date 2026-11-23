@@ -40,12 +40,16 @@ from ultralytics.utils.torch_utils import unwrap_model
 IGNORE_CLS = 5  # IR-only boxes; removed from the detection loss, used to mask TGD
 SOFT_OFFSET = 10  # IR-only boxes kept as soft labels travel as class + SOFT_OFFSET
 PSEUDO_OFFSET = 20  # fusion-teacher pseudo boxes travel as class + PSEUDO_OFFSET
+WSOFT_OFFSET = 100  # IR-only boxes with a per-box weight ω travel as WSOFT_OFFSET + N_CLS * round(1000 ω) + class
+WSOFT_LEVELS = 1000
+N_CLS = 5
 
 CONFIG = {
     "paired": False,          # train on 4-channel RGB+IR images (needed for TGD)
     "ir_only_dir": None,      # <dir>/<id>.txt, normalized xywh IR-only boxes
     "ir_soft": None,          # weight in (0, 1]: keep IR-only boxes as soft labels (needs ir_soft_dir)
     "ir_soft_dir": None,      # <dir>/<id>.txt, "cls x y w h" IR-only boxes
+    "ir_soft_w_dir": None,    # <dir>/<id>.txt, "cls x y w h ω" IR-only boxes with per-box weights
     "pseudo": None,           # weight in (0, 1]: fusion-teacher pseudo boxes as soft labels
     "pseudo_file": None,      # json {id: [[cls, cx, cy, w, h], ...]} normalized pseudo boxes
     "llsa": None,             # dict of LLSA parameters, or None
@@ -127,6 +131,32 @@ def ir_path(rgb_path):
     return str(Path(*parts))
 
 
+def encode_wsoft(cls, w):
+    """Encode class and per-box weight into one float32 class value that survives augmentation."""
+    q = np.clip(np.rint(np.asarray(w, np.float64) * WSOFT_LEVELS), 0, WSOFT_LEVELS).astype(np.int64)
+    return (WSOFT_OFFSET + N_CLS * q + np.asarray(cls, np.int64)).astype(np.float32)
+
+
+def decode_wsoft(enc):
+    k = (enc - WSOFT_OFFSET).round().long()
+    return (k % N_CLS).to(enc.dtype), (k // N_CLS).to(torch.float32) / WSOFT_LEVELS
+
+
+def split_box_weights(cls, ir_soft=None, pseudo=None):
+    """Flat class tensor (possibly offset-encoded) -> (plain classes, per-box loss weights)."""
+    wsoft = cls >= WSOFT_OFFSET
+    ps = (cls >= PSEUDO_OFFSET) & ~wsoft
+    soft = (cls >= SOFT_OFFSET) & ~wsoft
+    w = torch.where(ps, float(pseudo or 1.0), torch.where(soft, float(ir_soft or 1.0), 1.0)).to(torch.float32)
+    out = torch.where(ps, cls - PSEUDO_OFFSET, torch.where(soft, cls - SOFT_OFFSET, cls))
+    if bool(wsoft.any()):
+        c, q = decode_wsoft(cls[wsoft])
+        out = out.clone()
+        out[wsoft] = c
+        w[wsoft] = q.to(w.device)
+    return out, w
+
+
 # --------------------------------------------------------------------- paired dataset
 
 class _RGBOnly:
@@ -180,6 +210,15 @@ class IRPairDataset(YOLODataset):
         return im, (h0, w0), im.shape[:2]
 
     def update_labels_info(self, label):
+        d = self.cfg.get("ir_soft_w_dir")
+        if d:
+            p = Path(d) / f"{Path(label['im_file']).stem}.txt"
+            if p.exists() and p.stat().st_size:
+                a = np.loadtxt(p, ndmin=2, dtype=np.float32)
+                label["bboxes"] = np.concatenate([label["bboxes"], a[:, 1:5]], 0)
+                label["cls"] = np.concatenate(
+                    [label["cls"], encode_wsoft(a[:, 0], a[:, 5]).reshape(-1, 1).astype(label["cls"].dtype)], 0)
+            return super().update_labels_info(label)
         if self.cfg.get("pseudo"):
             if not hasattr(self, "_pseudo"):
                 self._pseudo = json.loads(Path(self.cfg["pseudo_file"]).read_text())
@@ -480,15 +519,9 @@ class LLTrainer(DetectionTrainer):
             _build.YOLODataset = YOLODataset
 
     def preprocess_batch(self, batch):
+        flat, box_w = split_box_weights(batch["cls"].view(-1), CONFIG.get("ir_soft"), CONFIG.get("pseudo"))
+        batch["cls"], batch["box_w"] = flat.view_as(batch["cls"]), box_w
         cls = batch["cls"].view(-1)
-        soft = cls >= SOFT_OFFSET
-        pseudo = cls >= PSEUDO_OFFSET
-        batch["box_w"] = torch.where(pseudo, float(CONFIG.get("pseudo") or 1.0),
-                                     torch.where(soft, float(CONFIG.get("ir_soft") or 1.0), 1.0)).to(torch.float32)
-        if soft.any():
-            off = torch.where(pseudo, PSEUDO_OFFSET, SOFT_OFFSET).to(batch["cls"].dtype).view_as(batch["cls"])
-            batch["cls"] = torch.where(soft.view_as(batch["cls"]), batch["cls"] - off, batch["cls"])
-            cls = batch["cls"].view(-1)
         ign = cls == IGNORE_CLS
         if ign.any():
             batch["ign_bboxes"], batch["ign_idx"] = batch["bboxes"][ign], batch["batch_idx"][ign]
