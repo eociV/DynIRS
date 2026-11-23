@@ -16,3 +16,10 @@ def test_paired_t_matches_scipy():
 def test_holm():
     assert np.allclose(ds.holm([0.01, 0.04, 0.03]), [0.03, 0.06, 0.06])
     assert np.allclose(ds.holm([0.5, 0.9]), [1.0, 1.0])
+
+
+def test_holm_propagates_nan_without_affecting_others():
+    out = ds.holm([0.01, float("nan"), 0.03])
+    assert np.isnan(out[1])
+    assert np.allclose([out[0], out[2]], [0.02, 0.03])
+    assert all(np.isnan(ds.holm([float("nan")])))

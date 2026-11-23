@@ -12,11 +12,16 @@ def paired_t(diffs):
 
 
 def holm(pvals):
+    """Holm step-down adjusted p-values. A NaN p-value stays NaN and is ignored for the others:
+    it does not count in the multiplier (m is the number of finite p-values) and does not raise
+    the running maximum."""
     p = np.asarray(pvals, float)
-    order = np.argsort(p)
-    adj = np.empty_like(p)
+    ok = ~np.isnan(p)
+    m = int(ok.sum())
+    order = [i for i in np.argsort(p) if ok[i]]
+    adj = np.full_like(p, np.nan)
     run = 0.0
     for rank, i in enumerate(order):
-        run = max(run, (len(p) - rank) * p[i])
+        run = max(run, (m - rank) * p[i])
         adj[i] = min(run, 1.0)
     return adj.tolist()

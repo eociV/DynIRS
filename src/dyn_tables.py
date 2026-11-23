@@ -56,8 +56,14 @@ def band_weights(ids, band):
     return np.ones(len(ids)) if band == "all" else ev.subset_weights(ids, (MAN / f"test_{band}.txt").read_text().split())
 
 
+def needs_rescore(entry, mtime):
+    """A cached score is valid only if it was computed from a predictions file with this mtime."""
+    return entry is None or entry.get("_mtime") != mtime
+
+
 def score(name):
-    preds = json.load(open(preds_path(name)))
+    with open(preds_path(name)) as fh:
+        preds = json.load(fh)
     r = {"ironly_recall": ironly_recall(preds)}
     for lab, band in METRICS:
         m = ev.Matched(D / lab / "test" / "boxes.json", preds)
@@ -74,10 +80,11 @@ def main(argv=None):
     names = sorted(p.parent.name for p in RUNS.glob("dyn_*/ws/out/*/preds_test.json")
                    if not p.parent.name.startswith(("dyn_bench", "dyn_smoke")))
     for n in names:
-        if n not in scores:
-            scores[n] = score(n)
+        mtime = preds_path(n).stat().st_mtime
+        if needs_rescore(scores.get(n), mtime):
+            scores[n] = dict(score(n), _mtime=mtime)
             cache.write_text(json.dumps(scores))
-            print(n, {k: round(v, 2) for k, v in scores[n].items()}, flush=True)
+            print(n, {k: round(v, 2) for k, v in scores[n].items() if k[0] != '_'}, flush=True)
     lines = ["# DynIRS results (test split, AP50:95 %)", ""]
     keys = [f"{l}_{b}" for l, b in METRICS] + ["ironly_recall"]
     lines += ["| run | " + " | ".join(keys) + " |", "|---" * (len(keys) + 1) + "|"]
