@@ -24,3 +24,13 @@ def test_pack_omega_and_code(tmp_path):
     (root / "requirements.txt").write_text("y")
     code = pk.pack_code(root, tmp_path / "out", "dynirs-code", user="me")
     assert (code / "src" / "a.py").exists() and (code / "requirements.txt").exists()
+
+
+def test_pack_code_writes_commit(tmp_path):
+    root = tmp_path / "repo"
+    for d in ("src", "scripts", "configs", "splits"):
+        (root / d).mkdir(parents=True)
+    (root / "requirements.txt").write_text("y")
+    code = pk.pack_code(root, tmp_path / "out", "dynirs-code", user="me")
+    assert (code / "COMMIT").read_text().strip() == "unknown"  # tmp repo is not a git checkout
+    assert pk.git_commit(pk.ROOT) not in ("", "unknown")

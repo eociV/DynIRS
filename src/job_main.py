@@ -190,10 +190,24 @@ def resolve_config(cfg, data, ws):
     return cfg
 
 
+def hash_omega_dir(d):
+    """SHA-256 over the sorted (file name + bytes) of the per-box weight files in d."""
+    h = hashlib.sha256()
+    for f in sorted(Path(d).glob("*.txt")):
+        h.update(f.name.encode() + f.read_bytes())
+    return h.hexdigest()
+
+
 def train(job):
     import lowlight as ll
 
-    ll.CONFIG.update(resolve_config(job.get("config", {}), DATA, WS))
+    cfg = resolve_config(job.get("config", {}), DATA, WS)
+    ll.CONFIG.update(cfg)
+    if cfg.get("ir_soft_w_dir"):
+        oh = hash_omega_dir(cfg["ir_soft_w_dir"])
+        log("omega files", cfg["ir_soft_w_dir"], "sha256", oh)
+        (WS / "out" / job["name"]).mkdir(parents=True, exist_ok=True)
+        (WS / "out" / job["name"] / "omega_hash.txt").write_text(oh + "\n")
     over = dict(job["train"])
     over["data"] = _data_yaml(over["data"], job)
     out = WS / "out"

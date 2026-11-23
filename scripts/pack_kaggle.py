@@ -10,6 +10,7 @@ import argparse
 import json
 import os
 import shutil
+import subprocess
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -50,11 +51,20 @@ def pack_omega(proc, out, slug, user):
     return d
 
 
+def git_commit(root):
+    try:
+        r = subprocess.run(["git", "rev-parse", "HEAD"], cwd=root, capture_output=True, text=True, check=True)
+        return r.stdout.strip() or "unknown"
+    except (OSError, subprocess.CalledProcessError):
+        return "unknown"
+
+
 def pack_code(root, out, slug, user):
     d = _fresh(out, slug)
     for sub in ("src", "scripts", "configs", "splits"):
         shutil.copytree(Path(root) / sub, d / sub, ignore=shutil.ignore_patterns("__pycache__"))
     shutil.copy2(Path(root) / "requirements.txt", d / "requirements.txt")
+    (d / "COMMIT").write_text(git_commit(root) + "\n")
     _meta(d, slug, user)
     return d
 

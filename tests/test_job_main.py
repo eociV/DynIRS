@@ -32,3 +32,13 @@ def test_resolve_rejects_both_soft_modes(tmp_path):
     (w / "a.txt").write_text("0 0.5 0.5 0.1 0.1 0.3\n")
     with pytest.raises(ValueError):
         jm.resolve_config({"ir_soft": 0.3, "ir_soft_dir": "auto", "ir_soft_w_dir": "auto:T"}, tmp_path, tmp_path)
+
+
+def test_hash_omega_dir(tmp_path):
+    (tmp_path / "a.txt").write_text("0 0.5 0.5 0.1 0.1 0.3\n")
+    (tmp_path / "b.txt").write_text("1 0.5 0.5 0.1 0.1 0.2\n")
+    (tmp_path / "ignored.json").write_text("{}")
+    h = jm.hash_omega_dir(tmp_path)
+    assert h == jm.hash_omega_dir(tmp_path) and len(h) == 64
+    (tmp_path / "b.txt").write_text("1 0.5 0.5 0.1 0.1 0.25\n")
+    assert jm.hash_omega_dir(tmp_path) != h
