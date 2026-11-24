@@ -29,13 +29,22 @@ SRC_FILES = ["lowlight.py", "dv_prep.py", "dv_pairs.py", "job_main.py", "zdce.py
 STUB = "import sys\nsys.path.insert(0, 'src')\nimport job_main\njob_main.main('job.json')\n"
 
 
-def predict_output(spec):
-    """File name job_main.predict writes for this job (None if the job has no predict step)."""
+def predict_outputs(spec):
+    """File names job_main.predict writes for this job ([] without a predict step; "predict" may be a
+    single dict or a list of them)."""
     p = spec.get("predict")
     if not p:
-        return None
-    root = p.get("data_root", "rgb")
-    return f"preds_{p['split']}{'' if root == 'rgb' else '_' + root}.json"
+        return []
+    out = []
+    for q in p if isinstance(p, list) else [p]:
+        root = q.get("data_root", "rgb")
+        out.append(f"preds_{q['split']}{'' if root == 'rgb' else '_' + root}.json")
+    return out
+
+
+def predict_output(spec):
+    """The first predict_outputs name (None if the job has no predict step)."""
+    return (predict_outputs(spec) or [None])[0]
 
 
 def epochs_done(out):
@@ -74,8 +83,8 @@ def plan(spec, runs=RUNS):
     if spec["kind"] != "train":
         return [(spec, None)]
     out = Path(runs) / spec["name"] / "ws" / "out" / spec["name"]
-    pred = predict_output(spec)
-    if pred and _valid_json(out / pred):
+    pred = predict_outputs(spec)
+    if pred and all(_valid_json(out / f) for f in pred):
         return []
     done = epochs_done(out)
     if done == "finished":

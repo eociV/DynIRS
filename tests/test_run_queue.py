@@ -120,3 +120,15 @@ def test_import_error_while_loading_checkpoint_keeps_the_file(tmp_path, monkeypa
     with pytest.raises(ModuleNotFoundError):
         rq.epochs_done(out)
     assert (out / "weights" / "last.pt").exists()
+
+
+def test_predict_outputs_list(tmp_path):
+    spec = _spec()
+    spec["predict"] = [dict(spec["predict"], split="train"), dict(spec["predict"], split="val")]
+    assert rq.predict_outputs(spec) == ["preds_train.json", "preds_val.json"]
+    out = tmp_path / spec["name"] / "ws" / "out" / spec["name"]
+    out.mkdir(parents=True)
+    (out / "preds_train.json").write_text("[]")
+    assert rq.plan(spec, runs=tmp_path)  # preds_val.json missing: still to run
+    (out / "preds_val.json").write_text("[]")
+    assert rq.plan(spec, runs=tmp_path) == []
