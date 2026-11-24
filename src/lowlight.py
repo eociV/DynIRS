@@ -50,7 +50,8 @@ CONFIG = {
     "ir_only_dir": None,      # <dir>/<id>.txt, normalized xywh IR-only boxes
     "ir_soft": None,          # weight in (0, 1]: keep IR-only boxes as soft labels (needs ir_soft_dir)
     "ir_soft_dir": None,      # <dir>/<id>.txt, "cls x y w h" IR-only boxes
-    "ir_soft_w_dir": None,    # <dir>/<id>.txt, "cls x y w h ω" IR-only boxes with per-box weights
+    "ir_soft_w_dir": None,    # <dir>/<id>.txt, "cls x y w h ω" IR-only boxes with per-box weights (ω < 0: ignore)
+    "ir_ignore": False,       # IGNORE_CLS boxes are ignore regions: no classification loss on anchors inside them
     "pseudo": None,           # weight in (0, 1]: fusion-teacher pseudo boxes as soft labels
     "pseudo_file": None,      # json {id: [[cls, cx, cy, w, h], ...]} normalized pseudo boxes
     "llsa": None,             # dict of LLSA parameters, or None
@@ -219,9 +220,9 @@ class IRPairDataset(YOLODataset):
             if p.exists() and p.stat().st_size:
                 # float64: in float32, a 4-decimal weight like 0.3185 rounds to the next 1/1000 level
                 a = np.loadtxt(p, ndmin=2, dtype=np.float64)
+                cls = np.where(a[:, 5] < 0, IGNORE_CLS, encode_wsoft(a[:, 0], np.clip(a[:, 5], 0, 1)))
                 label["bboxes"] = np.concatenate([label["bboxes"], a[:, 1:5].astype(label["bboxes"].dtype)], 0)
-                label["cls"] = np.concatenate(
-                    [label["cls"], encode_wsoft(a[:, 0], a[:, 5]).reshape(-1, 1).astype(label["cls"].dtype)], 0)
+                label["cls"] = np.concatenate([label["cls"], cls.reshape(-1, 1).astype(label["cls"].dtype)], 0)
             return super().update_labels_info(label)
         if self.cfg.get("pseudo"):
             if not hasattr(self, "_pseudo"):
@@ -440,12 +441,35 @@ from ultralytics.utils import loss as _loss_mod  # noqa: E402
 _orig_assigned = _loss_mod.v8DetectionLoss.get_assigned_targets_and_loss
 
 
+def ignore_anchor_mask(ign_bboxes, ign_idx, points, bs, imgsz):
+    """(bs, anchors) bool: anchor centre (pixels) inside an ignore box (normalized xywh) of its image."""
+    m = torch.zeros(bs, len(points), dtype=torch.int32, device=points.device)
+    if not len(ign_bboxes):
+        return m > 0
+    b = ign_bboxes.to(points.device, points.dtype)
+    h, w = float(imgsz[0]), float(imgsz[1])
+    x1, x2 = (b[:, 0] - b[:, 2] / 2) * w, (b[:, 0] + b[:, 2] / 2) * w
+    y1, y2 = (b[:, 1] - b[:, 3] / 2) * h, (b[:, 1] + b[:, 3] / 2) * h
+    px, py = points[:, 0], points[:, 1]
+    inside = ((px[None] >= x1[:, None]) & (px[None] <= x2[:, None]) &
+              (py[None] >= y1[:, None]) & (py[None] <= y2[:, None]))  # (n ignore boxes, anchors)
+    idx = ign_idx.view(-1).long().to(points.device)
+    m.index_put_((idx,), inside.to(torch.int32), accumulate=True)  # count of an image's boxes per anchor
+    return m > 0
+
+
 def _weighted_assigned(self, preds, batch):
     """v8DetectionLoss with per-box weights: target scores of anchors assigned to a box are
-    multiplied by its weight (soft IR-only labels). Identical to the original without box_w."""
+    multiplied by its weight (soft IR-only labels). With CONFIG["ir_ignore"], background anchors whose
+    centre lies in an ignore box (IGNORE_CLS) get no classification loss. Identical to the original
+    without box_w and ignore boxes."""
     w = batch.get("box_w")
-    if w is None or bool((w == 1).all()):
+    ign = batch.get("ign_bboxes") if CONFIG.get("ir_ignore") else None
+    has_ign = ign is not None and len(ign) > 0
+    if (w is None or bool((w == 1).all())) and not has_ign:
         return _orig_assigned(self, preds, batch)
+    if w is None:
+        w = torch.ones(batch["cls"].numel(), device=batch["cls"].device)
     from ultralytics.utils.tal import make_anchors
 
     loss = torch.zeros(3, device=self.device)
@@ -471,6 +495,9 @@ def _weighted_assigned(self, preds, batch):
     bce_loss = self.bce(pred_scores, target_scores.to(dtype))
     if self.class_weights is not None:
         bce_loss *= self.class_weights
+    if has_ign:
+        ia = ignore_anchor_mask(ign, batch["ign_idx"], anchor_points * stride_tensor, batch_size, imgsz)
+        bce_loss = bce_loss * (~(ia & ~fg_mask)).unsqueeze(-1).to(bce_loss.dtype)
     loss[1] = bce_loss.sum() / target_scores_sum
     loss[0], loss[2] = self.bbox_loss(pred_distri, pred_bboxes, anchor_points, target_bboxes / stride_tensor,
                                       target_scores, target_scores_sum, fg_mask, imgsz, stride_tensor)

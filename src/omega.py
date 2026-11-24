@@ -42,7 +42,11 @@ TYPE_VARIANTS = {
     "FX": {"dup": 0.0, "invisible": 0.3, "faint": 0.3, "visible": 1.0},
     "NI": {"dup": 0.0, "invisible": 0.0, "faint": 0.3, "visible": 1.0},
 }
-VARIANTS = ("T", "TL", "S") + tuple(RANK_KEYS) + tuple(TYPE_VARIANTS)
+# Registration-shift / ignore variants: omega (-1 = ignore region: no loss either way) and whether the
+# IR-only boxes are moved by their image's RGB-IR shift (median offset of its matched pairs).
+REG_VARIANTS = {"SH": (0.3, True), "IG": (-1.0, False), "SI": (-1.0, True)}
+MIN_PAIRS = 3  # matched pairs needed to estimate an image's shift
+VARIANTS = ("T", "TL", "S") + tuple(RANK_KEYS) + tuple(TYPE_VARIANTS) + tuple(REG_VARIANTS)
 
 
 def xywhn_to_xyxy(a):
@@ -208,6 +212,43 @@ def build_type_weights(types, variant):
     return out, stats
 
 
+def image_shifts(pairs, min_pairs=MIN_PAIRS):
+    """{image id: (dx, dy) pixels}, IR minus RGB centre, the median over the image's matched pairs
+    (dv_pairs: proc/stats/pairs_<split>.json); images with fewer than min_pairs pairs are left out."""
+    out = {}
+    for k, v in pairs.items():
+        o = np.asarray(v["offsets"], float).reshape(-1, 2)
+        if len(o) >= min_pairs:
+            out[k] = tuple(float(x) for x in np.median(o, 0))
+    return out
+
+
+def shift_boxes(rows, d):
+    """Rows "cls cx cy w h" (normalized) moved by -d pixels (IR frame -> RGB frame), clipped to the image."""
+    rows = np.array(rows, float).reshape(-1, 5)
+    if not len(rows) or not any(d):
+        return rows
+    xy = xywhn_to_xyxy(rows[:, 1:5]) - np.array([d[0], d[1], d[0], d[1]])
+    xy = np.clip(xy, 0, [W, H, W, H])
+    rows[:, 1], rows[:, 2] = (xy[:, 0] + xy[:, 2]) / 2 / W, (xy[:, 1] + xy[:, 3]) / 2 / H
+    rows[:, 3], rows[:, 4] = (xy[:, 2] - xy[:, 0]) / W, (xy[:, 3] - xy[:, 1]) / H
+    return rows
+
+
+def build_reg_weights(boxes, pairs, variant):
+    """(boxes, weights, stats) of a REG_VARIANTS variant from load_ironly boxes and pairs_train.json."""
+    omega, move = REG_VARIANTS[variant]
+    sh = image_shifts(pairs) if move else {}
+    nb = {k: shift_boxes(b, sh[k]) if k in sh else b for k, b in boxes.items()}
+    w = {k: np.full(len(b), omega) for k, b in nb.items()}
+    n = sum(len(b) for b in boxes.values())
+    moved = [float(np.hypot(*sh[k])) for k, b in boxes.items() if k in sh for _ in range(len(b))]
+    stats = {"variant": variant, "omega": omega, "shift": move, "n_boxes": n,
+             "n_in_shift_images": len(moved), "n_moved_gt_2px": int(sum(m > 2 for m in moved)),
+             "shift_px_p50_p90": [float(np.percentile(moved, q)) for q in (50, 90)] if moved else None}
+    return nb, w, stats
+
+
 def write_weights(proc, variant, boxes, weights):
     out = Path(proc) / "ironly_w" / variant / "train"
     out.mkdir(parents=True, exist_ok=True)
@@ -216,7 +257,8 @@ def write_weights(proc, variant, boxes, weights):
         if len(b) != len(w):
             raise ValueError(f"{k}: {len(b)} boxes but {len(w)} weights")
         (out / f"{k}.txt").write_text("".join(  # omega 0: dropped, the box stays background
-            f"{int(r[0])} {r[1]:.6f} {r[2]:.6f} {r[3]:.6f} {r[4]:.6f} {x:.4f}\n" for r, x in zip(b, w) if x > 0))
+            f"{int(r[0])} {r[1]:.6f} {r[2]:.6f} {r[3]:.6f} {r[4]:.6f} {x:.4f}\n" for r, x in zip(b, w)
+            if x != 0 and r[3] > 0 and r[4] > 0))  # omega -1: ignore region (lowlight IGNORE_CLS)
     return out
 
 
@@ -261,6 +303,12 @@ def main(argv=None):
             ty = bt.compute_types(proc, split)
             (proc / "stats" / f"boxtypes_{split}.json").write_text(json.dumps(ty))
             print(split, json.dumps(bt.counts(ty)))
+    elif a.variant in REG_VARIANTS:
+        pairs = json.loads((proc / "stats" / "pairs_train.json").read_text())
+        boxes, weights, stats = build_reg_weights(load_ironly(proc), pairs, a.variant)
+        write_weights(proc, a.variant, boxes, weights)
+        (proc / "stats" / f"omega_{a.variant}.json").write_text(json.dumps(stats, indent=1))
+        print(json.dumps(stats))
     elif a.variant in TYPE_VARIANTS:
         import boxtypes as bt
 

@@ -101,3 +101,14 @@ def test_fold_of_partition(tmp_path, monkeypatch):
     assert len(f) == 11 and sorted(set(f.values())) == [0, 1]
     assert abs(list(f.values()).count(0) - list(f.values()).count(1)) <= 1
     assert f == jm.fold_of(2)
+
+
+def test_screen2_queue():
+    q = mq.build()
+    for s in (0, 1, 2):
+        jobs = {j["name"]: j for j in q[f"t4_screen2_s{s}"]}
+        assert sorted(jobs) == sorted(f"dyn_scr_{c}_s{s}" for c in ("B", "C", "SH", "IG", "SI"))
+        assert jobs[f"dyn_scr_IG_s{s}"]["config"]["ir_ignore"] is True
+        assert jobs[f"dyn_scr_SI_s{s}"]["config"]["ir_soft_w_dir"] == "auto:SI"
+        assert not jobs[f"dyn_scr_SH_s{s}"]["config"].get("ir_ignore")
+        assert jobs[f"dyn_scr_C_s{s}"] == next(j for j in q[f"t4_screen_s{s}"] if j["name"] == f"dyn_scr_C_s{s}")

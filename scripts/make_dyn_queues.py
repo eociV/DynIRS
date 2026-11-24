@@ -3,7 +3,8 @@
   python scripts/make_dyn_queues.py [--epochs 40] [--imgsz 640]
 
 Queues: bench, smoke, smoke_tl, teacher, teacher_rgb (2-fold cross-fitted RGB YOLO26l), local_26n_s0, local_26n_s12, t4_<model>_s<seed>_c, t4_<model>_s<seed>_ttl,
-t4_screen_s<seed> (omega screening, B/C/ND/FX/NI: YOLO26n, fixed 20 % train subset, 15 epochs, 704 px, scored on val).
+t4_screen_s<seed> (omega screening, B/C/ND/FX/NI: YOLO26n, fixed 20 % train subset, 15 epochs, 704 px, scored on val),
+t4_screen2_s<seed> (same protocol, B/C/SH/IG/SI: registration shift and ignore regions).
 """
 import argparse
 import json
@@ -24,7 +25,13 @@ CONFIGS = {
 RANK = ("RT", "RD", "RB", "RA", "RS")  # rank-mapped omega variants, see src/omega.py
 TYPED = ("ND", "FX", "NI")  # omega by IR-only box type, see src/omega.py and src/boxtypes.py
 CONFIGS.update({v: dict(SOFT, ir_soft_w_dir=f"auto:{v}") for v in RANK + TYPED})
+# SH: omega 0.3 on IR-only boxes moved by the image's RGB-IR shift; IG: IR-only boxes as ignore regions
+# (no classification loss inside them); SI: both. See src/omega.py REG_VARIANTS.
+CONFIGS.update({"SH": dict(SOFT, ir_soft_w_dir="auto:SH"),
+                "IG": dict(SOFT, ir_soft_w_dir="auto:IG", ir_ignore=True),
+                "SI": dict(SOFT, ir_soft_w_dir="auto:SI", ir_ignore=True)})
 SCREEN = ("B", "C") + TYPED
+SCREEN2 = ("B", "C", "SH", "IG", "SI")  # registration shift and ignore regions
 SCREEN_RUN = {"epochs": 15, "imgsz": 704, "proxy_fraction": 0.2}  # the proxy protocol of the IRS-YOLO26n paper
 DATA_KEY = {"M": "mix"}
 HW = {"local": {"workers": 4, "cache": "disk"}, "t4": {"workers": 2, "cache": "disk"}}  # t4: 2 lanes share 4 CPUs
@@ -92,12 +99,13 @@ def build(epochs=40, imgsz=640):
             q[f"t4_{m}_s{s}_c"] = [student(m, "C", s, "t4", epochs, imgsz)]
             q[f"t4_{m}_s{s}_ttl"] = [student(m, c, s, "t4", epochs, imgsz) for c in ("T", "TL")]
     for s in (0, 1, 2):
-        jobs = [student("26n", c, s, "t4", SCREEN_RUN["epochs"], SCREEN_RUN["imgsz"], name=f"dyn_scr_{c}_s{s}",
-                        data="rgb_proxy", extra={"proxy_fraction": SCREEN_RUN["proxy_fraction"]}) for c in SCREEN]
-        for j in jobs:
-            j["splits"] = ["train", "val"]
-            j["predict"]["split"] = "val"
-        q[f"t4_screen_s{s}"] = jobs
+        for qn, cfgs in ((f"t4_screen_s{s}", SCREEN), (f"t4_screen2_s{s}", SCREEN2)):
+            jobs = [student("26n", c, s, "t4", SCREEN_RUN["epochs"], SCREEN_RUN["imgsz"], name=f"dyn_scr_{c}_s{s}",
+                            data="rgb_proxy", extra={"proxy_fraction": SCREEN_RUN["proxy_fraction"]}) for c in cfgs]
+            for j in jobs:
+                j["splits"] = ["train", "val"]
+                j["predict"]["split"] = "val"
+            q[qn] = jobs
     return q
 
 

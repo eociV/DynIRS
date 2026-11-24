@@ -195,3 +195,28 @@ def test_rank_area_needs_areas():
 def test_box_areas():
     b = {"x": np.array([[0, 0.5, 0.5, 0.1, 0.2]])}
     assert np.allclose(om.box_areas(b)["x"], [0.1 * 640 * 0.2 * 512])
+
+
+def test_image_shifts_median_and_min_pairs():
+    pairs = {"a": {"offsets": [[4, -2], [5, -2], [30, 0]]}, "b": {"offsets": [[9, 9], [9, 9]]}}
+    assert om.image_shifts(pairs) == {"a": (5.0, -2.0)}
+
+
+def test_shift_boxes_moves_into_rgb_frame_and_clips():
+    rows = np.array([[1, 0.5, 0.5, 0.1, 0.1], [0, 0.01, 0.5, 0.02, 0.1]])
+    out = om.shift_boxes(rows, (6.4, -5.12))  # IR is 6.4 px right, 5.12 px up of RGB
+    assert np.allclose(out[0], [1, 0.49, 0.51, 0.1, 0.1])
+    x1 = (out[1, 1] - out[1, 3] / 2) * om.W
+    assert x1 == pytest.approx(0) and out[1, 3] < 0.02
+    assert np.array_equal(om.shift_boxes(rows, (0.0, 0.0)), rows)
+
+
+def test_reg_variants_write_ignore_rows(tmp_path):
+    boxes = {"a": np.array([[0, 0.5, 0.5, 0.1, 0.1]]), "b": np.zeros((0, 5))}
+    pairs = {"a": {"offsets": [[6.4, 0]] * 3}, "b": {"offsets": []}}
+    nb, w, st = om.build_reg_weights(boxes, pairs, "SI")
+    assert st["n_moved_gt_2px"] == 1 and np.allclose(nb["a"][0, 1], 0.49)
+    out = om.write_weights(tmp_path, "SI", nb, w)
+    assert (out / "a.txt").read_text().split()[-1] == "-1.0000"
+    nb, w, st = om.build_reg_weights(boxes, pairs, "IG")
+    assert np.allclose(nb["a"][0, 1], 0.5) and st["n_in_shift_images"] == 0
