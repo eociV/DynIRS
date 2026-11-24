@@ -2,11 +2,11 @@
 
   python src/screen_tables.py
 
-Per run: COCO AP50:95 (%) against the RGB and IR labels (all / night images); night recall (%) of
-IR-only vehicles, overall and by the RGB visibility of the box (mean luminance v: dark < 0.03 <= dim
-< 0.15 <= visible); night false alarms (detections matching neither annotation). Detections count
-at score >= 0.25 and IoU >= 0.5, class-agnostic. Per config: mean +- SD over seeds, and the seed-paired
-difference to C (constant omega 0.3) and to RS (the same omega values in a random order).
+Per run: COCO AP50:95 (%) against the RGB and IR labels (all / night images); recall (%) of IR-only
+vehicles at night, and over all images by box type (src/boxtypes.py: dup, invisible, faint, visible;
+from proc/stats/boxtypes_val.json); night false alarms (detections matching neither annotation).
+Detections count at score >= 0.25 and IoU >= 0.5, class-agnostic. Per config: mean +- SD over seeds,
+and the seed-paired difference to B (no IR labels) and to C (constant omega 0.3).
 """
 import argparse
 import json
@@ -21,17 +21,18 @@ sys.path.insert(0, str(HERE))
 import dyn_stats as ds  # noqa: E402
 import evaluate as ev  # noqa: E402
 from dv_pairs import iou_matrix  # noqa: E402
-from omega import box_luminance, xywhn_to_xyxy  # noqa: E402
+import boxtypes as bt  # noqa: E402
+from omega import xywhn_to_xyxy  # noqa: E402
 
 D = ROOT / "data" / "dronevehicle" / "proc"
 MAN = ROOT / "splits"
 RUNS = ROOT / "runs" / "remote"
 OUT = ROOT / "runs" / "analysis" / "screen"
 SPLIT = "val"
-CONFIGS = ("B", "C", "RT", "RD", "RB", "RA", "RS")
-VIS_BINS = (("dark", 0.0, 0.03), ("dim", 0.03, 0.15), ("visible", 0.15, 1.01))
+CONFIGS = ("B", "C", "ND", "FX", "NI")
+REFS = ("B", "C")
 THR, IOU = 0.25, 0.5
-KEYS = (["rgb_all", "rgb_night", "ir_all", "ir_night", "ironly_rec"] + [f"ironly_rec_{b}" for b, _, _ in VIS_BINS]
+KEYS = (["rgb_all", "rgb_night", "ir_all", "ir_night", "ironly_rec_night"] + [f"rec_{t}" for t in bt.TYPES]
         + ["false_alarms"])
 
 
@@ -39,40 +40,27 @@ def night_ids():
     return set((MAN / f"{SPLIT}_night.txt").read_text().split())
 
 
-def ironly_night(nights):
-    """{image id: (boxes xyxy, visibility v)} for the night images with IR-only boxes (cached)."""
-    cache = OUT / f"{SPLIT}_ironly_vis.json"
-    if cache.exists():
-        d = json.loads(cache.read_text())
-    else:
-        import cv2
-
-        d = {}
-        for f in sorted((D / "ironly_cls" / SPLIT).glob("*.txt")):
-            if f.stem not in nights or not f.stat().st_size:
-                continue
-            xy = xywhn_to_xyxy(np.loadtxt(f, ndmin=2)[:, 1:5])
-            rgb = cv2.imread(str(D / "rgb" / SPLIT / "images" / f"{f.stem}.jpg"), cv2.IMREAD_COLOR)[..., ::-1]
-            d[f.stem] = [xy.round(2).tolist(), box_luminance(rgb, xy).round(5).tolist()]
-        OUT.mkdir(parents=True, exist_ok=True)
-        cache.write_text(json.dumps(d))
-    return {k: (np.array(b, float).reshape(-1, 4), np.array(v, float)) for k, (b, v) in d.items()}
+def ironly_boxes():
+    """{image id: (IR-only boxes xyxy, their types)} over all images of the split."""
+    types = bt.load_types(D, SPLIT)
+    out = {}
+    for f in sorted((D / "ironly_cls" / SPLIT).glob("*.txt")):
+        if f.stat().st_size:
+            out[f.stem] = (xywhn_to_xyxy(np.loadtxt(f, ndmin=2)[:, 1:5]), [t for _, _, t in types[f.stem]])
+    return out
 
 
-def recall_by_bin(dets, ironly):
-    """{"ironly_rec": %, "ironly_rec_<bin>": %} from {image id: detections xyxy}."""
-    hit, vis = [], []
-    for k, (g, v) in ironly.items():
+def recalls(dets, ironly, nights):
+    """{"ironly_rec_night": %, "rec_<type>": %} from {image id: detections xyxy}."""
+    hit, ty, night = [], [], []
+    for k, (g, t) in ironly.items():
         p = dets.get(k)
-        h = (iou_matrix(g, p).max(1) >= IOU) if p is not None and len(p) else np.zeros(len(g), bool)
-        hit.append(h)
-        vis.append(v)
-    hit, vis = (np.concatenate(x) if x else np.zeros(0) for x in (hit, vis))
-    r = {"ironly_rec": 100.0 * hit.mean() if len(hit) else float("nan")}
-    for b, lo, hi in VIS_BINS:
-        s = (vis >= lo) & (vis < hi)
-        r[f"ironly_rec_{b}"] = 100.0 * hit[s].mean() if s.any() else float("nan")
-    return r
+        hit.append((iou_matrix(g, p).max(1) >= IOU) if p is not None and len(p) else np.zeros(len(g), bool))
+        ty += t
+        night += [k in nights] * len(g)
+    hit, ty, night = np.concatenate(hit) if hit else np.zeros(0, bool), np.array(ty), np.array(night, bool)
+    pct = lambda s: 100.0 * hit[s].mean() if s.any() else float("nan")  # noqa: E731
+    return {"ironly_rec_night": pct(night), **{f"rec_{t}": pct(ty == t) for t in bt.TYPES}}
 
 
 def false_alarms(dets, nights):
@@ -101,7 +89,7 @@ def score(path, nights, ironly):
         if p["score"] >= THR:
             dets.setdefault(p["image_id"], []).append(p["bbox"])
     dets = {k: np.array(v, float) for k, v in dets.items()}
-    r.update(recall_by_bin(dets, ironly))
+    r.update(recalls(dets, ironly, nights))
     r["false_alarms"] = false_alarms(dets, nights)
     return r
 
@@ -110,7 +98,7 @@ def main(argv=None):
     argparse.ArgumentParser().parse_args(argv)
     OUT.mkdir(parents=True, exist_ok=True)
     nights = night_ids()
-    ironly = ironly_night(nights)
+    ironly = ironly_boxes()
     cache = OUT / "scores.json"
     scores = json.loads(cache.read_text()) if cache.exists() else {}
     for p in sorted(RUNS.glob(f"dyn_scr_*/ws/out/*/preds_{SPLIT}.json")):
@@ -119,10 +107,9 @@ def main(argv=None):
             scores[n] = dict(score(p, nights, ironly), _mtime=mt)
             cache.write_text(json.dumps(scores))
             print(n, {k: round(v, 2) for k, v in scores[n].items() if k[0] != "_"}, flush=True)
-    vis = np.concatenate([v for _, v in ironly.values()]) if ironly else np.zeros(0)
-    counts = ", ".join(f"{b} {int(((vis >= lo) & (vis < hi)).sum())}" for b, lo, hi in VIS_BINS)
+    n = {t: sum(x.count(t) for _, x in ironly.values()) for t in bt.TYPES}
     lines = [f"# Omega screening ({SPLIT} split; AP50:95 %, recall %, false alarms = count)", "",
-             f"Night IR-only vehicles by RGB visibility: {counts}.", "",
+             "IR-only vehicles by type (all images): " + ", ".join(f"{t} {c}" for t, c in n.items()) + ".", "",
              "| config | n | " + " | ".join(KEYS) + " |", "|---" * (len(KEYS) + 2) + "|"]
     runs = {c: [f"dyn_scr_{c}_s{s}" for s in (0, 1, 2) if f"dyn_scr_{c}_s{s}" in scores] for c in CONFIGS}
     for c, names in runs.items():
@@ -130,7 +117,7 @@ def main(argv=None):
             cells = [f"{np.mean([scores[n][k] for n in names]):.2f} ± {np.std([scores[n][k] for n in names], ddof=1) if len(names) > 1 else 0:.2f}"
                      for k in KEYS]
             lines.append(f"| {c} | {len(names)} | " + " | ".join(cells) + " |")
-    for ref in ("C", "RS"):
+    for ref in REFS:
         lines += ["", f"## Seed-paired differences to {ref} (mean [t 95 % CI], n seeds)", "",
                   "| config | " + " | ".join(KEYS) + " |", "|---" * (len(KEYS) + 1) + "|"]
         for c in CONFIGS:

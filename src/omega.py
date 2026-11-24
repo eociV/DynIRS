@@ -12,6 +12,11 @@ Rank variants share one weight distribution, uniform on [RANK_LO, RANK_HI] (mean
 differ only in which boxes get the high weights: the boxes are ranked by a key and the rank is mapped
 linearly onto the interval (ties share their mean rank). Keys: RT teacher confidence c, RD darkness
 1 - v, RB brightness v, RA box area, RS a random order (seed 0).
+
+Type variants set omega by the type of the box (src/boxtypes.py); each changes one type from the
+previous one: C (0.3 for all) -> ND (dup boxes dropped) -> FX (visible boxes at 1.0, i.e. treated as
+missing RGB labels) -> NI (invisible boxes dropped). A dropped box (omega 0) is left out of the weight
+file, so it is background as in plain RGB training.
 """
 
 from __future__ import annotations
@@ -32,7 +37,12 @@ FLOOR, CEIL, TARGET = 0.05, 1.0, 0.3
 MATCH_IOU = 0.5
 RANK_KEYS = {"RT": "teacher confidence", "RD": "darkness", "RB": "brightness", "RA": "area", "RS": "random"}
 RANK_LO, RANK_HI = 0.05, 0.55
-VARIANTS = ("T", "TL", "S") + tuple(RANK_KEYS)
+TYPE_VARIANTS = {
+    "ND": {"dup": 0.0, "invisible": 0.3, "faint": 0.3, "visible": 0.3},
+    "FX": {"dup": 0.0, "invisible": 0.3, "faint": 0.3, "visible": 1.0},
+    "NI": {"dup": 0.0, "invisible": 0.0, "faint": 0.3, "visible": 1.0},
+}
+VARIANTS = ("T", "TL", "S") + tuple(RANK_KEYS) + tuple(TYPE_VARIANTS)
 
 
 def xywhn_to_xyxy(a):
@@ -186,6 +196,18 @@ def build_weights(signals, variant, seed=0, areas=None):
     return out, stats
 
 
+def build_type_weights(types, variant):
+    """Per-image weights from box types ({id: [[contrast, ro_iou, type], ...]}) and stats."""
+    table = TYPE_VARIANTS[variant]
+    out = {k: np.array([table[t] for _, _, t in v], float) for k, v in types.items()}
+    w = np.concatenate([x for x in out.values()]) if out else np.zeros(0)
+    flat = [t for v in types.values() for _, _, t in v]
+    stats = {"variant": variant, "n_boxes": len(w), "omega": table,
+             "n_by_type": {t: flat.count(t) for t in table}, "n_dropped": int((w == 0).sum()),
+             "mean": float(w.mean()), "mean_kept": float(w[w > 0].mean()) if (w > 0).any() else 0.0}
+    return out, stats
+
+
 def write_weights(proc, variant, boxes, weights):
     out = Path(proc) / "ironly_w" / variant / "train"
     out.mkdir(parents=True, exist_ok=True)
@@ -193,8 +215,8 @@ def write_weights(proc, variant, boxes, weights):
         b, w = boxes[k], weights.get(k, np.zeros(0))
         if len(b) != len(w):
             raise ValueError(f"{k}: {len(b)} boxes but {len(w)} weights")
-        (out / f"{k}.txt").write_text("".join(
-            f"{int(r[0])} {r[1]:.6f} {r[2]:.6f} {r[3]:.6f} {r[4]:.6f} {x:.4f}\n" for r, x in zip(b, w)))
+        (out / f"{k}.txt").write_text("".join(  # omega 0: dropped, the box stays background
+            f"{int(r[0])} {r[1]:.6f} {r[2]:.6f} {r[3]:.6f} {r[4]:.6f} {x:.4f}\n" for r, x in zip(b, w) if x > 0))
     return out
 
 
@@ -218,6 +240,9 @@ def main(argv=None):
     s.add_argument("--teacher", required=True)
     s.add_argument("--imgsz", type=int, default=640)
     s.add_argument("--batch", type=int, default=32)
+    t = sub.add_parser("types")
+    t.add_argument("--proc", required=True)
+    t.add_argument("--splits", nargs="+", default=["train", "val"])
     w = sub.add_parser("weights")
     w.add_argument("--proc", required=True)
     w.add_argument("--variant", choices=VARIANTS, required=True)
@@ -229,6 +254,21 @@ def main(argv=None):
         flat = np.array([x for v in sig.values() for x in v]).reshape(-1, 2)
         print(json.dumps({"n_boxes": len(flat), "c_mean": float(flat[:, 0].mean()),
                           "frac_c_zero": float(np.mean(flat[:, 0] == 0)), "v_mean": float(flat[:, 1].mean())}))
+    elif a.cmd == "types":
+        import boxtypes as bt
+
+        for split in a.splits:
+            ty = bt.compute_types(proc, split)
+            (proc / "stats" / f"boxtypes_{split}.json").write_text(json.dumps(ty))
+            print(split, json.dumps(bt.counts(ty)))
+    elif a.variant in TYPE_VARIANTS:
+        import boxtypes as bt
+
+        boxes = load_ironly(proc)
+        weights, stats = build_type_weights(bt.load_types(proc, "train"), a.variant)
+        write_weights(proc, a.variant, boxes, weights)
+        (proc / "stats" / f"omega_{a.variant}.json").write_text(json.dumps(stats, indent=1))
+        print(json.dumps(stats))
     else:
         sig = json.loads((proc / "stats" / "omega_signals.json").read_text())
         boxes = load_ironly(proc)

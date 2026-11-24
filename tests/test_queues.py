@@ -69,7 +69,7 @@ def test_screen_queues():
     q = mq.build()
     for s in (0, 1, 2):
         jobs = q[f"t4_screen_s{s}"]
-        assert [j["name"] for j in jobs] == [f"dyn_scr_{c}_s{s}" for c in ("B", "C", "RT", "RD", "RB", "RA", "RS")]
+        assert [j["name"] for j in jobs] == [f"dyn_scr_{c}_s{s}" for c in ("B", "C", "ND", "FX", "NI")]
         for j in jobs:
             t = j["train"]
             assert (t["epochs"], t["imgsz"], t["batch"], t["seed"], t["data"]) == (15, 704, 32, s, "rgb_proxy")
@@ -77,5 +77,5 @@ def test_screen_queues():
             assert j["predict"]["split"] == "val" and j["predict"]["imgsz"] == 704
         by = {j["name"].split("_")[2]: j for j in jobs}
         assert by["B"]["config"] == {} and by["C"]["config"]["ir_soft"] == 0.3
-        for v in ("RT", "RD", "RB", "RA", "RS"):
+        for v in ("ND", "FX", "NI"):
             assert by[v]["config"]["ir_soft_w_dir"] == f"auto:{v}" and by[v]["config"]["load_ir"] is False

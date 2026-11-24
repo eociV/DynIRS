@@ -246,3 +246,24 @@ Model selection is unchanged: validation every epoch and `best.pt`, as in the or
 - Teacher scoring its own training boxes: train one YOLO26l teacher first, inspect the spread
   statistics written by `omega.py weights` (std, IQR, fraction within 0.3 ± 0.05, teacher-confidence
   std and fraction ≥ 0.9), then decide whether to switch to 2-fold cross-fitting.
+
+## Amendment 2026-11-24: omega by IR-only box type
+
+Findings on the 34,061 IR-only train boxes (teacher YOLO26l, val IR mAP50:95 0.638):
+- Teacher confidence c barely varies (std 0.13; 0.2 % missed) and tracks box area (Spearman 0.52) and
+  darkness (-0.48), not label quality: mean c is 0.73-0.79 in every box type below. Mean-matched T has
+  std 0.048 (90 % within 0.3 +- 0.05), so T, TL and S would hardly differ from C.
+- RGB luminance does not measure visibility: many day/twilight RGB frames are flat gray (haze), and
+  "bright" boxes are mostly day boxes. Local RGB contrast does (sample sheets in runs/analysis/types).
+- Types (src/boxtypes.py; thresholds set from the sample sheets): dup 1,070 (3.1 %, same vehicle as an
+  unmatched RGB box, misregistered), invisible 28,960 (85.0 %, contrast < 12), faint 2,647 (7.8 %),
+  visible 1,384 (4.1 %, RGB-visible vehicles missing from the RGB annotation; 53 % touch the image
+  border versus 17 % of invisible boxes).
+
+New question: which IR-only boxes help an RGB detector? Screening ladder, each step changes one type:
+C (0.3 for all) -> ND (dup dropped) -> FX (visible at 1.0, as corrected RGB labels) -> NI (invisible
+dropped), plus B. Protocol of the original proxy screening: YOLO26n, fixed 20 % train subset, 15
+epochs, 704 px, seeds 0-2, scored on val by src/screen_tables.py (AP vs both annotations, IR-only
+recall per type, night false alarms). Queues t4_screen_s{0,1,2} on Kaggle T4 x2. The rank variants
+(RT/RD/RB/RA/RS) stay in the code but are not screened: their orderings mostly encode box size and
+day/night. The full-scale matrix is decided after screening.

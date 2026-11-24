@@ -3,7 +3,7 @@
   python scripts/make_dyn_queues.py [--epochs 40] [--imgsz 640]
 
 Queues: bench, smoke, smoke_tl, teacher, local_26n_s0, local_26n_s12, t4_<model>_s<seed>_c, t4_<model>_s<seed>_ttl,
-t4_screen_s<seed> (omega screening: YOLO26n, fixed 20 % train subset, 15 epochs, 704 px, scored on val).
+t4_screen_s<seed> (omega screening, B/C/ND/FX/NI: YOLO26n, fixed 20 % train subset, 15 epochs, 704 px, scored on val).
 """
 import argparse
 import json
@@ -22,8 +22,9 @@ CONFIGS = {
     "S": dict(SOFT, ir_soft_w_dir="auto:S"),
 }
 RANK = ("RT", "RD", "RB", "RA", "RS")  # rank-mapped omega variants, see src/omega.py
-CONFIGS.update({v: dict(SOFT, ir_soft_w_dir=f"auto:{v}") for v in RANK})
-SCREEN = ("B", "C") + RANK
+TYPED = ("ND", "FX", "NI")  # omega by IR-only box type, see src/omega.py and src/boxtypes.py
+CONFIGS.update({v: dict(SOFT, ir_soft_w_dir=f"auto:{v}") for v in RANK + TYPED})
+SCREEN = ("B", "C") + TYPED
 SCREEN_RUN = {"epochs": 15, "imgsz": 704, "proxy_fraction": 0.2}  # the proxy protocol of the IRS-YOLO26n paper
 DATA_KEY = {"M": "mix"}
 HW = {"local": {"workers": 4, "cache": "disk"}, "t4": {"workers": 2, "cache": "disk"}}  # t4: 2 lanes share 4 CPUs

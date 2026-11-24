@@ -75,7 +75,7 @@
   "proxy_fraction": 0.2
  },
  {
-  "name": "dyn_scr_RT_s1",
+  "name": "dyn_scr_ND_s1",
   "kind": "train",
   "splits": [
    "train",
@@ -105,18 +105,18 @@
    "llsa": null,
    "dnc_lambda": 0.0,
    "tgd_lambda": 0.0,
-   "ir_soft_w_dir": "auto:RT"
+   "ir_soft_w_dir": "auto:ND"
   },
   "inputs": {},
   "predict": {
-   "weights": "out/dyn_scr_RT_s1/weights/best.pt",
+   "weights": "out/dyn_scr_ND_s1/weights/best.pt",
    "split": "val",
    "imgsz": 704
   },
   "proxy_fraction": 0.2
  },
  {
-  "name": "dyn_scr_RD_s1",
+  "name": "dyn_scr_FX_s1",
   "kind": "train",
   "splits": [
    "train",
@@ -146,18 +146,18 @@
    "llsa": null,
    "dnc_lambda": 0.0,
    "tgd_lambda": 0.0,
-   "ir_soft_w_dir": "auto:RD"
+   "ir_soft_w_dir": "auto:FX"
   },
   "inputs": {},
   "predict": {
-   "weights": "out/dyn_scr_RD_s1/weights/best.pt",
+   "weights": "out/dyn_scr_FX_s1/weights/best.pt",
    "split": "val",
    "imgsz": 704
   },
   "proxy_fraction": 0.2
  },
  {
-  "name": "dyn_scr_RB_s1",
+  "name": "dyn_scr_NI_s1",
   "kind": "train",
   "splits": [
    "train",
@@ -187,93 +187,11 @@
    "llsa": null,
    "dnc_lambda": 0.0,
    "tgd_lambda": 0.0,
-   "ir_soft_w_dir": "auto:RB"
+   "ir_soft_w_dir": "auto:NI"
   },
   "inputs": {},
   "predict": {
-   "weights": "out/dyn_scr_RB_s1/weights/best.pt",
-   "split": "val",
-   "imgsz": 704
-  },
-  "proxy_fraction": 0.2
- },
- {
-  "name": "dyn_scr_RA_s1",
-  "kind": "train",
-  "splits": [
-   "train",
-   "val"
-  ],
-  "chunks": [
-   7,
-   null
-  ],
-  "timeout": 0,
-  "train": {
-   "model": "yolo26n.pt",
-   "epochs": 15,
-   "imgsz": 704,
-   "batch": 32,
-   "seed": 1,
-   "deterministic": false,
-   "plots": false,
-   "data": "rgb_proxy",
-   "workers": 2,
-   "cache": "disk"
-  },
-  "config": {
-   "paired": true,
-   "load_ir": false,
-   "ir_only_dir": "auto",
-   "llsa": null,
-   "dnc_lambda": 0.0,
-   "tgd_lambda": 0.0,
-   "ir_soft_w_dir": "auto:RA"
-  },
-  "inputs": {},
-  "predict": {
-   "weights": "out/dyn_scr_RA_s1/weights/best.pt",
-   "split": "val",
-   "imgsz": 704
-  },
-  "proxy_fraction": 0.2
- },
- {
-  "name": "dyn_scr_RS_s1",
-  "kind": "train",
-  "splits": [
-   "train",
-   "val"
-  ],
-  "chunks": [
-   7,
-   null
-  ],
-  "timeout": 0,
-  "train": {
-   "model": "yolo26n.pt",
-   "epochs": 15,
-   "imgsz": 704,
-   "batch": 32,
-   "seed": 1,
-   "deterministic": false,
-   "plots": false,
-   "data": "rgb_proxy",
-   "workers": 2,
-   "cache": "disk"
-  },
-  "config": {
-   "paired": true,
-   "load_ir": false,
-   "ir_only_dir": "auto",
-   "llsa": null,
-   "dnc_lambda": 0.0,
-   "tgd_lambda": 0.0,
-   "ir_soft_w_dir": "auto:RS"
-  },
-  "inputs": {},
-  "predict": {
-   "weights": "out/dyn_scr_RS_s1/weights/best.pt",
+   "weights": "out/dyn_scr_NI_s1/weights/best.pt",
    "split": "val",
    "imgsz": 704
   },
