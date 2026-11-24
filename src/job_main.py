@@ -8,6 +8,8 @@ job.json fields:
   config       lowlight.CONFIG values (stop_after_epoch is the chunk end)
   predict      {"weights": path, "split": "val"|"test", "data_root": "rgb"|"rgb_zdce"}
   proxy_ids    optional list of train image ids for proxy runs
+  fold         optional [i, k] with data "<mod>_proxy": train on the train ids outside fold i of k
+               (fold_of, seeded by proxy_seed); for cross-fitted teachers
 
 Data are prepared once per VM under /content/data/dv from the pinned Hugging
 Face mirror, with the same dv_prep/dv_pairs code used locally.
@@ -111,6 +113,15 @@ def ensure_zdce(splits):
         log("zero-dce++", s, n, "images", round(time.time() - t), "s")
 
 
+def fold_of(k, seed=0):
+    """{train image id: fold 0..k-1}: a seeded random partition of the sorted train ids."""
+    import numpy as np
+
+    allids = sorted(p.stem for p in (DATA / "proc" / "rgb" / "train" / "images").glob("*.jpg"))
+    perm = np.random.default_rng(seed).permutation(len(allids))
+    return {allids[j]: int(i % k) for i, j in enumerate(perm)}
+
+
 def _data_yaml(key, job):
     """rgb | ir | rgb_proxy | ir_proxy | rgb_zdce."""
     proc = DATA / "proc"
@@ -119,6 +130,8 @@ def _data_yaml(key, job):
     if key.endswith("_proxy") and not key.startswith("rgb4"):
         mod = key[:-6]
         ids = job.get("proxy_ids")
+        if ids is None and job.get("fold"):  # cross-fitting: train on all folds but fold i of k
+            ids = [x for x, f in fold_of(job["fold"][1], job.get("proxy_seed", 0)).items() if f != job["fold"][0]]
         if ids is None:  # seeded random subset of the sorted train ids
             import numpy as np
 
@@ -245,11 +258,16 @@ def write_atomic(dst, text):
 
 
 def predict(job):
+    """job["predict"] is one {"weights", "split", "imgsz", "data_root"} dict or a list of them."""
+    for p in job["predict"] if isinstance(job["predict"], list) else [job["predict"]]:
+        _predict(job, p)
+
+
+def _predict(job, p):
     from ultralytics import YOLO
 
     import lowlight as ll
 
-    p = job["predict"]
     w = WS / p["weights"]
     student = w.with_name(w.stem + "_student.pt")
     ll.export_student(w, student)

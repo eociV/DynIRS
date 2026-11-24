@@ -2,7 +2,7 @@
 
   python scripts/make_dyn_queues.py [--epochs 40] [--imgsz 640]
 
-Queues: bench, smoke, smoke_tl, teacher, local_26n_s0, local_26n_s12, t4_<model>_s<seed>_c, t4_<model>_s<seed>_ttl,
+Queues: bench, smoke, smoke_tl, teacher, teacher_rgb (2-fold cross-fitted RGB YOLO26l), local_26n_s0, local_26n_s12, t4_<model>_s<seed>_c, t4_<model>_s<seed>_ttl,
 t4_screen_s<seed> (omega screening, B/C/ND/FX/NI: YOLO26n, fixed 20 % train subset, 15 epochs, 704 px, scored on val).
 """
 import argparse
@@ -53,6 +53,20 @@ def teacher(epochs=50, name="dyn_teacher_26l"):
                         "data_root": "ir"}}
 
 
+def rgb_teacher(fold, k=2, epochs=30, name=None):
+    """YOLO26l on the RGB labels, cross-fitted: trained on the train images outside fold `fold` of `k`
+    (job_main.fold_of, seed 0), so its scores on the held-out fold are not fitted to those images' labels
+    (which treat the IR-only vehicles as background). Predicts train (use only the held-out fold) and val."""
+    name = name or f"dyn_teacher_rgb26l_f{fold}"
+    w = f"out/{name}/weights/best.pt"
+    return {"name": name, "kind": "train", "splits": ["train", "val", "test"],
+            "chunks": list(range(10, epochs, 10)) + [None], "timeout": 0, "fold": [fold, k], "proxy_seed": 0,
+            "train": {"model": "yolo26l.pt", "epochs": epochs, "imgsz": 640, "batch": 16, "seed": 0,
+                      "deterministic": False, "plots": False, "data": "rgb_proxy", **HW["local"]},
+            "config": {}, "inputs": {},
+            "predict": [{"weights": w, "split": s, "imgsz": 640} for s in ("train", "val")]}
+
+
 def build(epochs=40, imgsz=640):
     q = {}
     proxy = {"proxy_fraction": 0.012}  # about 200 train images
@@ -69,6 +83,7 @@ def build(epochs=40, imgsz=640):
     q["smoke_tl"] = [student(m, "TL", 0, "local", 1, imgsz, name=f"dyn_smoke_{m}_TL", data="rgb_proxy",
                              extra=proxy) for m in MODELS]
     q["teacher"] = [teacher()]
+    q["teacher_rgb"] = [rgb_teacher(f) for f in (0, 1)]
     cfg26 = ("B", "M", "C", "T", "TL", "S")
     q["local_26n_s0"] = [student("26n", c, 0, "local", epochs, imgsz) for c in cfg26]
     q["local_26n_s12"] = [student("26n", c, s, "local", epochs, imgsz) for s in (1, 2) for c in cfg26]

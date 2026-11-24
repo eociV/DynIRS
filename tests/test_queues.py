@@ -11,7 +11,7 @@ def _all(q):
 
 def test_matrix_counts():
     q = mq.build()
-    train = [j for j in _all(q) if j["kind"] == "train" and not j["name"].startswith(("dyn_bench", "dyn_scr"))]
+    train = [j for j in _all(q) if j["kind"] == "train" and not j["name"].startswith(("dyn_bench", "dyn_scr", "dyn_teacher_rgb"))]
     names = {j["name"] for j in train}
     assert "dyn_teacher_26l" in names
     students = names - {"dyn_teacher_26l"} - {n for n in names if n.startswith("dyn_smoke")}
@@ -79,3 +79,25 @@ def test_screen_queues():
         assert by["B"]["config"] == {} and by["C"]["config"]["ir_soft"] == 0.3
         for v in ("ND", "FX", "NI"):
             assert by[v]["config"]["ir_soft_w_dir"] == f"auto:{v}" and by[v]["config"]["load_ir"] is False
+
+
+def test_rgb_teacher_folds():
+    q = mq.build()
+    jobs = q["teacher_rgb"]
+    assert [j["fold"] for j in jobs] == [[0, 2], [1, 2]]
+    assert all(j["train"]["data"] == "rgb_proxy" for j in jobs)
+    assert all({p["split"] for p in j["predict"]} == {"train", "val"} for j in jobs)
+
+
+def test_fold_of_partition(tmp_path, monkeypatch):
+    import job_main as jm
+
+    d = tmp_path / "proc" / "rgb" / "train" / "images"
+    d.mkdir(parents=True)
+    for i in range(11):
+        (d / f"{i:05d}.jpg").write_bytes(b"")
+    monkeypatch.setattr(jm, "DATA", tmp_path)
+    f = jm.fold_of(2)
+    assert len(f) == 11 and sorted(set(f.values())) == [0, 1]
+    assert abs(list(f.values()).count(0) - list(f.values()).count(1)) <= 1
+    assert f == jm.fold_of(2)
