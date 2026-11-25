@@ -98,3 +98,18 @@ def test_cli_build_writes_weight_files(tmp_path, monkeypatch):
     assert (proc / "ironly_w" / "I" / "train" / "a.txt").read_text().split()[-1] == "-1.0000"
     st = json.loads((proc / "stats" / "clean_I.json").read_text())
     assert st["n_boxes"] == 1 and st["n_ignored"] == 1
+
+
+def test_variant_f_drops_boxes_that_land_on_an_rgb_label():
+    # IR-only box 6.4 px right of an RGB-labelled vehicle: after registration it is the same vehicle
+    boxes = {"a": np.array([_box(0.5, 0.5), _box(0.2, 0.2)])}
+    pairs = {"a": {"offsets": [[6.4, 0]] * 3}}
+    rgb = {"a": om.xywhn_to_xyxy(np.array([[0.49, 0.5, 0.1, 0.1]]))}
+    preds = {"a": np.array([_pred_on(_box(0.49, 0.5), 0.9), _pred_on(_box(0.19, 0.2), 0.9)])}
+    rows, w, st = cl.build_variant("F", boxes, pairs, preds, rgb)
+    assert w["a"].tolist() == pytest.approx([0.0, 0.9])  # 0: dropped (not written), the RGB label covers it
+    assert st["n_dropped_rgb_dup"] == 1 and st["n_taught"] == 1
+    rows, w, st = cl.build_variant("V", boxes, pairs, preds, rgb)  # unmoved, still on the RGB label (IoU 0.82)
+    assert st["n_dropped_rgb_dup"] == 1
+    rows, w, st = cl.build_variant("P", boxes, pairs, preds, rgb)  # P keeps the original recipe
+    assert w["a"].tolist() == [0.3, 0.3] and st["n_dropped_rgb_dup"] == 0

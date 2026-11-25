@@ -1017,7 +1017,8 @@ Expected (one JSON line per variant):
 - P: `n_taught` 34061;
 - I: `n_ignored` 34061;
 - F: `n_images_residual` 319 (images with IR-only boxes among the 1,093 over 4 px), `n_ignored_residual` 1621, `n_moved_gt_2px` 6025;
-- V: `n_taught` about 3,000–4,000 (the 5-class teacher gave 3,626);
+- V: `n_taught` about 3,000–4,000 (the 5-class teacher gave 3,545, with 249 RGB duplicates dropped);
+- F: `n_dropped_rgb_dup` in the hundreds (the 5-class teacher gave 805);
 - F: `n_taught` at least V's.
 
 If F's numbers are far from these, stop and report.

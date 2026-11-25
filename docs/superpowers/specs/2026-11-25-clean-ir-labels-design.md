@@ -57,8 +57,9 @@ classes are mapped to 0 ("vehicle").
 | ② Misaligned images | Residual r = median over pairs of ‖offset − d‖. If r > 4 px, every IR-only box of the image becomes an ignore region (1,093 images exceed 4 px; 319 of them have IR-only boxes, 1,621 boxes in all). |
 | ③ Verification | For each remaining IR-only box (at its moved position), c = highest score of an RGB-teacher detection with IoU ≥ 0.5 to it. The detections come from the fold model that did not train on the image. |
 | ④ Decision | c ≥ 0.5: taught, with ω = c. c < 0.5: ignore region. |
+| ⑤ RGB duplicates (V and F) | A box with IoU ≥ 0.3 to an RGB label (at its final position) is that labelled vehicle, usually a misregistered duplicate: it is dropped (not written). With the 5-class teacher this drops 805 boxes in F (572 of the "dup" type), and taught duplicates fall from 249 to 17. |
 
-Fixed constants: MIN_PAIRS = 3, MAX_RESIDUAL = 4 px, TAU = 0.5. They are not tuned on results.
+Fixed constants: MIN_PAIRS = 3, MAX_RESIDUAL = 4 px, TAU = 0.5, DUP_IOU = 0.3 (the pair-matching IoU). They are not tuned on results.
 
 Output per variant: proc/ironly_w/<variant>/train/<id>.txt with rows "0 cx cy w h ω". ω ∈ (0, 1]
 is taught with weight ω, and ω = −1 is an ignore region. A stats JSON records counts per step and the

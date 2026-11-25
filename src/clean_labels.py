@@ -7,13 +7,15 @@ Variants of the IR-only boxes (proc/ironly_cls/train), all written as class 0 to
 proc/ironly_w/<variant>/train/<id>.txt ("0 cx cy w h omega"; omega -1 = ignore region):
   P  every box, omega 0.3, not moved                  (the original recipe)
   I  every box as an ignore region, not moved
-  V  steps 3-4 on unmoved boxes
+  V  steps 3-4 on unmoved boxes (and the RGB-duplicate drop below)
   F  steps 1-4:
      1 registration: images with >= MIN_PAIRS matched pairs move their IR-only boxes by -d,
        d = median (IR - RGB) centre offset of the pairs (proc/stats/pairs_train.json)
      2 misaligned images: residual = median |offset - d| > MAX_RESIDUAL px -> every box ignored
      3 verification: c = best score of a held-out RGB-teacher detection with IoU >= 0.5 to the box
      4 decision: c >= TAU taught with omega c, else ignored
+     V and F drop (omega 0, not written) any box with IoU >= DUP_IOU to an RGB label: after registration
+     a misregistered duplicate lands on its RGB-labelled vehicle, which needs no second label
 The teacher is cross-fitted (dyn_teacher_rgb1c_f{0,1}): a train image is scored by the fold model that
 did not train on it (job_main.fold_of, 2 folds, seed 0). Stats: proc/stats/clean_<variant>.json.
 """
@@ -29,12 +31,14 @@ ROOT = HERE.parent
 sys.path.insert(0, str(HERE))
 import job_main as jm  # noqa: E402
 import omega as om  # noqa: E402
+from dv_pairs import iou_matrix  # noqa: E402
 
 MIN_PAIRS = 3
 MAX_RESIDUAL = 4.0
 TAU = 0.5
 P_OMEGA = 0.3
 IGNORE = -1.0
+DUP_IOU = 0.3  # an IR-only box (moved or not) on an RGB label is that labelled vehicle: dropped in V and F
 VARIANTS = ("P", "I", "V", "F")
 TEACHER = "dyn_teacher_rgb1c_f{}"
 
@@ -72,15 +76,25 @@ def _conf(rows, p):
     return om.teacher_conf(om.xywhn_to_xyxy(rows[:, 1:5]), p[:, :4], p[:, 4])
 
 
-def build_variant(variant, boxes, pairs, preds):
-    """(rows, weights, stats) for one variant; rows are class-0 normalized "cls cx cy w h"."""
+def rgb_boxes(proc, split="train"):
+    """{image id: (n, 4) xyxy pixels} of the RGB labels."""
+    import boxtypes as bt
+
+    d = Path(proc) / "rgb" / split / "labels"
+    return {f.stem: bt.read_yolo(f)[:, 1:5] for f in d.glob("*.txt")}
+
+
+def build_variant(variant, boxes, pairs, preds, rgb=None):
+    """(rows, weights, stats) for one variant; rows are class-0 normalized "cls cx cy w h".
+    In V and F, a box with IoU >= DUP_IOU to an RGB label (rgb: {id: xyxy}) gets weight 0: it is that
+    labelled vehicle (typically a misregistered duplicate), so it is not written."""
     if variant not in VARIANTS:
         raise ValueError(variant)
     move = variant == "F"
     sh = om.image_shifts(pairs, MIN_PAIRS) if move else {}
     res = residuals(pairs) if move else {}
     rows, w = {}, {}
-    n_res = n_res_img = n_moved = 0
+    n_res = n_res_img = n_moved = n_dup = 0
     for k, b in boxes.items():
         b = np.array(b, float).reshape(-1, 5)
         b[:, 0] = 0
@@ -97,11 +111,16 @@ def build_variant(variant, boxes, pairs, preds):
             n_res_img += bool(len(b))
         else:
             x = decide(_conf(b, preds.get(k)))
+        if variant in ("V", "F") and rgb is not None and len(b) and len(rgb.get(k, ())):
+            dup = iou_matrix(om.xywhn_to_xyxy(b[:, 1:5]), rgb[k]).max(1) >= DUP_IOU
+            x = np.where(dup, 0.0, x)
+            n_dup += int(dup.sum())
         rows[k], w[k] = b, x
     allw = np.concatenate(list(w.values())) if w else np.zeros(0)
     taught = allw[allw > 0]
     stats = {"variant": variant, "n_boxes": int(len(allw)), "n_taught": int(len(taught)),
              "n_ignored": int((allw < 0).sum()), "n_ignored_residual": int(n_res),
+             "n_dropped_rgb_dup": int(n_dup),
              "n_images_residual": int(n_res_img), "n_moved_gt_2px": int(n_moved),
              "omega_taught_mean": float(taught.mean()) if len(taught) else 0.0,
              "omega_taught_p50": float(np.median(taught)) if len(taught) else 0.0,
@@ -117,7 +136,7 @@ def sheet(proc, runs, out):
     preds = heldout_preds(runs, data)
     boxes = {k: v for k, v in om.load_ironly(proc).items() if len(v)}
     pairs = json.loads((Path(proc) / "stats" / "pairs_train.json").read_text())
-    rows, w, _ = build_variant("F", boxes, pairs, preds)
+    rows, w, _ = build_variant("F", boxes, pairs, preds, rgb_boxes(proc))
     res = residuals(pairs)
     out = Path(out)
     out.mkdir(parents=True, exist_ok=True)
@@ -153,8 +172,9 @@ def main(argv=None):
     boxes = om.load_ironly(proc)
     pairs = json.loads((proc / "stats" / "pairs_train.json").read_text())
     preds = heldout_preds(a.runs, proc.parent) if set(a.variants) & {"V", "F"} else {}
+    rgb = rgb_boxes(proc)
     for v in a.variants:
-        rows, w, st = build_variant(v, boxes, pairs, preds)
+        rows, w, st = build_variant(v, boxes, pairs, preds, rgb)
         d = proc / "ironly_w" / v / "train"  # write_weights does not empty it: drop a previous build
         if d.is_dir():
             for f in d.glob("*.txt"):
