@@ -8,6 +8,7 @@ one this reproduces COCOeval.accumulate (checked by `selfcheck`).
 
 Predictions: JSON list of {"image_id": "<id>", "category_id": 0-4,
 "bbox": [x1, y1, x2, y2], "score": s} in 640x512 pixel coordinates.
+With agnostic=True all categories are one class "vehicle" (single-class study).
 """
 
 from __future__ import annotations
@@ -27,31 +28,32 @@ REC = np.linspace(0, 1, 101)
 MAXDET = 300
 
 
-def _coco_gt(boxes_json):
+def _coco_gt(boxes_json, agnostic=False):
     g = json.load(open(boxes_json))
     ids = sorted(g["images"])
+    classes = ["vehicle"] if agnostic else g["classes"]
     images, anns = [], []
     for n, k in enumerate(ids):
         images.append({"id": n, "file_name": k, "width": g["width"], "height": g["height"]})
         for c, x1, y1, x2, y2 in g["images"][k]:
-            anns.append({"id": len(anns) + 1, "image_id": n, "category_id": int(c) + 1,
+            anns.append({"id": len(anns) + 1, "image_id": n, "category_id": 1 if agnostic else int(c) + 1,
                          "bbox": [x1, y1, x2 - x1, y2 - y1], "area": (x2 - x1) * (y2 - y1),
                          "iscrowd": 0})
-    cats = [{"id": i + 1, "name": c} for i, c in enumerate(g["classes"])]
+    cats = [{"id": i + 1, "name": c} for i, c in enumerate(classes)]
     coco = COCO()
     coco.dataset = {"images": images, "annotations": anns, "categories": cats}
     with contextlib.redirect_stdout(io.StringIO()):
         coco.createIndex()
-    return coco, ids, g["classes"]
+    return coco, ids, classes
 
 
 class Matched:
     """Per-image matching results of one model, ready for weighted accumulation."""
 
-    def __init__(self, boxes_json, preds, area="all", keep_ev=False):
-        coco, self.ids, self.classes = _coco_gt(boxes_json)
+    def __init__(self, boxes_json, preds, area="all", keep_ev=False, agnostic=False):
+        coco, self.ids, self.classes = _coco_gt(boxes_json, agnostic)
         index = {k: n for n, k in enumerate(self.ids)}
-        dets = [{"image_id": index[p["image_id"]], "category_id": int(p["category_id"]) + 1,
+        dets = [{"image_id": index[p["image_id"]], "category_id": 1 if agnostic else int(p["category_id"]) + 1,
                  "bbox": [p["bbox"][0], p["bbox"][1], p["bbox"][2] - p["bbox"][0],
                           p["bbox"][3] - p["bbox"][1]], "score": float(p["score"])}
                 for p in preds if p["image_id"] in index]
