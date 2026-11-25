@@ -1,6 +1,6 @@
 """Run one DynIRS queue inside a Kaggle or Colab session.
 
-  python scripts/kaggle_session.py --queue configs/queues/dyn/t4_v8n_s0_c.json \
+  python scripts/kaggle_session.py --queue configs/queues/dyn/t4_clean_s0.json \
       --data-in /kaggle/input/dynirs-dv --omega-in /kaggle/input/dynirs-omega \
       --prev-out /kaggle/input/<previous-session-output> --work /kaggle/working
 

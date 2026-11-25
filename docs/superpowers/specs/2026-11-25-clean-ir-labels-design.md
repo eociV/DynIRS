@@ -92,7 +92,7 @@ Each row from P to F changes one thing relative to the row above it.
 
 ## 5. Protocol and compute
 
-**Screening**: B, P, I, V, F × seeds 0, 1, 2 = 15 runs. YOLO26n, fixed 20 % train subset (proxy seed
+**Screening**: B, P, I, V, F × seeds 0, 1, 2 = 15 runs. Seed 0 (5 runs) runs first and is reviewed with the user; seeds 1 and 2 and the full scale follow only if the user decides to continue. YOLO26n, fixed 20 % train subset (proxy seed
 0), 15 epochs, 704 px, batch 32, scored on val. This is the proxy protocol of the original paper. Runs on
 Kaggle T4 ×2, two runs per session.
 

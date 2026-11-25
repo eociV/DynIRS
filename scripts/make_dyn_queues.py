@@ -1,10 +1,15 @@
-"""Generate the DynIRS queue files (configs/queues/dyn/*.json).
+"""Generate the DynIRS queue files (configs/queues/dyn/*.json) for the clean-label study
+(docs/superpowers/specs/2026-11-25-clean-ir-labels-design.md).
 
-  python scripts/make_dyn_queues.py [--epochs 40] [--imgsz 640]
+  python scripts/make_dyn_queues.py
 
-Queues: bench, smoke, smoke_tl, teacher, teacher_rgb (2-fold cross-fitted RGB YOLO26l), local_26n_s0, local_26n_s12, t4_<model>_s<seed>_c, t4_<model>_s<seed>_ttl,
-t4_screen_s<seed> (omega screening, B/C/ND/FX/NI: YOLO26n, fixed 20 % train subset, 15 epochs, 704 px, scored on val),
-t4_screen2_s<seed> (same protocol, B/C/SH/IG/SI: registration shift and ignore regions).
+Queues (every job single class, Ultralytics single_cls):
+  teacher_rgb1c       cross-fitted RGB teacher, YOLO26l, 2 folds, predicts train and val (local GPU)
+  t4_clean_s<seed>    screening B, P, I, V, F: YOLO26n, fixed 20 % train subset, 15 epochs, 704 px, val
+  full_clean_s<seed>  full scale FULL: YOLO26n, 100 % train, 60 epochs, 704 px, test (local GPU)
+Configs: B no IR-only boxes; P all with omega 0.3; I all as ignore regions; V RGB-teacher verified
+(c >= 0.5 taught with omega c, else ignored); F registration + misalignment filter + V. Their weight
+files come from src/clean_labels.py. Regenerating deletes every other queue file in configs/queues/dyn.
 """
 import argparse
 import json
@@ -12,110 +17,68 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 OUT = ROOT / "configs" / "queues" / "dyn"
-MODELS = {"26n": "yolo26n.pt", "v8n": "yolov8n.pt", "11n": "yolo11n.pt"}
-SOFT = {"paired": True, "load_ir": False, "ir_only_dir": "auto", "llsa": None, "dnc_lambda": 0.0, "tgd_lambda": 0.0}
+PAIRED = {"paired": True, "load_ir": False}  # labels-only pairing: inject IR-only boxes, RGB pixels only
 CONFIGS = {
     "B": {},
-    "M": {},  # trained on data "mix" (RGB + IR train images), see DATA_KEY
-    "C": dict(SOFT, ir_soft=0.3, ir_soft_dir="auto"),
-    "T": dict(SOFT, ir_soft_w_dir="auto:T"),
-    "TL": dict(SOFT, ir_soft_w_dir="auto:TL"),
-    "S": dict(SOFT, ir_soft_w_dir="auto:S"),
+    "P": dict(PAIRED, ir_soft_w_dir="auto:P"),
+    "I": dict(PAIRED, ir_soft_w_dir="auto:I", ir_ignore=True),
+    "V": dict(PAIRED, ir_soft_w_dir="auto:V", ir_ignore=True),
+    "F": dict(PAIRED, ir_soft_w_dir="auto:F", ir_ignore=True),
 }
-RANK = ("RT", "RD", "RB", "RA", "RS")  # rank-mapped omega variants, see src/omega.py
-TYPED = ("ND", "FX", "NI")  # omega by IR-only box type, see src/omega.py and src/boxtypes.py
-CONFIGS.update({v: dict(SOFT, ir_soft_w_dir=f"auto:{v}") for v in RANK + TYPED})
-# SH: omega 0.3 on IR-only boxes moved by the image's RGB-IR shift; IG: IR-only boxes as ignore regions
-# (no classification loss inside them); SI: both. See src/omega.py REG_VARIANTS.
-CONFIGS.update({"SH": dict(SOFT, ir_soft_w_dir="auto:SH"),
-                "IG": dict(SOFT, ir_soft_w_dir="auto:IG", ir_ignore=True),
-                "SI": dict(SOFT, ir_soft_w_dir="auto:SI", ir_ignore=True)})
-SCREEN = ("B", "C") + TYPED
-SCREEN2 = ("B", "C", "SH", "IG", "SI")  # registration shift and ignore regions
-SCREEN_RUN = {"epochs": 15, "imgsz": 704, "proxy_fraction": 0.2}  # the proxy protocol of the IRS-YOLO26n paper
-DATA_KEY = {"M": "mix"}
-HW = {"local": {"workers": 4, "cache": "disk"}, "t4": {"workers": 2, "cache": "disk"}}  # t4: 2 lanes share 4 CPUs
+SCREEN = ("B", "P", "I", "V", "F")
+FULL = ("B", "P", "F")  # revised after screening (spec section 5)
+SEEDS = (0, 1, 2)
+SCREEN_RUN = {"epochs": 15, "imgsz": 704, "proxy_fraction": 0.2}  # the IRS-YOLO26n proxy protocol
+FULL_RUN = {"epochs": 60, "imgsz": 704}
+HW = {"local": {"workers": 4, "cache": "disk"}, "t4": {"workers": 2, "cache": "disk"}}
 
 
-def student(model, cfg, seed, hw, epochs, imgsz, name=None, data=None, extra=None):
-    name = name or f"dyn_{model}_{cfg}_s{seed}"
-    data = data or DATA_KEY.get(cfg, "rgb")
-    job = {"name": name, "kind": "train", "splits": ["train", "val", "test"],
-           "chunks": [epochs // 2, None] if epochs > 1 else [None], "timeout": 0,
-           "train": {"model": MODELS[model], "epochs": epochs, "imgsz": imgsz, "batch": 32, "seed": seed,
-                     "deterministic": False, "plots": False, "data": data, **HW[hw]},
-           "config": dict(CONFIGS[cfg]), "inputs": {},
-           "predict": {"weights": f"out/{name}/weights/best.pt", "split": "test", "imgsz": imgsz}}
+def student(code, seed, name, hw, epochs, imgsz, data, split, extra=None):
+    job = {"name": name, "kind": "train",
+           "splits": ["train", "val"] if split == "val" else ["train", "val", "test"],
+           "chunks": [epochs // 2, None], "timeout": 0,
+           "train": {"model": "yolo26n.pt", "epochs": epochs, "imgsz": imgsz, "batch": 32, "seed": seed,
+                     "deterministic": False, "plots": False, "single_cls": True, "data": data, **HW[hw]},
+           "config": dict(CONFIGS[code]), "inputs": {},
+           "predict": {"weights": f"out/{name}/weights/best.pt", "split": split, "imgsz": imgsz}}
     job.update(extra or {})
     return job
 
 
-def teacher(epochs=50, name="dyn_teacher_26l"):
-    return {"name": name, "kind": "train", "splits": ["train", "val", "test"],
-            "chunks": list(range(10, epochs, 10)) + [None], "timeout": 0,
-            "train": {"model": "yolo26l.pt", "epochs": epochs, "imgsz": 640, "batch": 16, "seed": 0,
-                      "deterministic": False, "plots": False, "data": "ir", **HW["local"]},
-            "config": {}, "inputs": {},
-            "predict": {"weights": f"out/{name}/weights/best.pt", "split": "val", "imgsz": 640,
-                        "data_root": "ir"}}
-
-
-def rgb_teacher(fold, k=2, epochs=30, name=None):
-    """YOLO26l on the RGB labels, cross-fitted: trained on the train images outside fold `fold` of `k`
-    (job_main.fold_of, seed 0), so its scores on the held-out fold are not fitted to those images' labels
-    (which treat the IR-only vehicles as background). Predicts train (use only the held-out fold) and val."""
-    name = name or f"dyn_teacher_rgb26l_f{fold}"
+def rgb_teacher(fold, k=2, epochs=30):
+    """YOLO26l on the RGB labels only, single class, cross-fitted: trained on the train images outside
+    fold `fold` of `k` (job_main.fold_of, seed 0); predicts train (only its held-out fold is used) and val."""
+    name = f"dyn_teacher_rgb1c_f{fold}"
     w = f"out/{name}/weights/best.pt"
     return {"name": name, "kind": "train", "splits": ["train", "val", "test"],
             "chunks": list(range(10, epochs, 10)) + [None], "timeout": 0, "fold": [fold, k], "proxy_seed": 0,
             "train": {"model": "yolo26l.pt", "epochs": epochs, "imgsz": 640, "batch": 16, "seed": 0,
-                      "deterministic": False, "plots": False, "data": "rgb_proxy", **HW["local"]},
+                      "deterministic": False, "plots": False, "single_cls": True, "data": "rgb_proxy",
+                      **HW["local"]},
             "config": {}, "inputs": {},
             "predict": [{"weights": w, "split": s, "imgsz": 640} for s in ("train", "val")]}
 
 
-def build(epochs=40, imgsz=640):
-    q = {}
-    proxy = {"proxy_fraction": 0.012}  # about 200 train images
-    q["bench"] = [student("26n", "C", 0, "local", 1, imgsz, name="dyn_bench_26n"),
-                  student("11n", "C", 0, "local", 1, imgsz, name="dyn_bench_11n"),
-                  teacher(1, name="dyn_bench_teacher")]
-    for j in q["bench"]:
-        j.pop("predict")
-    q["bench2"] = [student("26n", "C", 0, "local", 1, imgsz, name=f"dyn_bench2_{x}") for x in ("a", "b")]
-    for j in q["bench2"]:
-        j.pop("predict")
-    q["smoke"] = [student(m, "C", 0, "local", 1, imgsz, name=f"dyn_smoke_{m}", data="rgb_proxy", extra=proxy)
-                  for m in MODELS]
-    q["smoke_tl"] = [student(m, "TL", 0, "local", 1, imgsz, name=f"dyn_smoke_{m}_TL", data="rgb_proxy",
-                             extra=proxy) for m in MODELS]
-    q["teacher"] = [teacher()]
-    q["teacher_rgb"] = [rgb_teacher(f) for f in (0, 1)]
-    cfg26 = ("B", "M", "C", "T", "TL", "S")
-    q["local_26n_s0"] = [student("26n", c, 0, "local", epochs, imgsz) for c in cfg26]
-    q["local_26n_s12"] = [student("26n", c, s, "local", epochs, imgsz) for s in (1, 2) for c in cfg26]
-    for m in ("v8n", "11n"):
-        for s in (0, 1, 2):
-            q[f"t4_{m}_s{s}_c"] = [student(m, "C", s, "t4", epochs, imgsz)]
-            q[f"t4_{m}_s{s}_ttl"] = [student(m, c, s, "t4", epochs, imgsz) for c in ("T", "TL")]
-    for s in (0, 1, 2):
-        for qn, cfgs in ((f"t4_screen_s{s}", SCREEN), (f"t4_screen2_s{s}", SCREEN2)):
-            jobs = [student("26n", c, s, "t4", SCREEN_RUN["epochs"], SCREEN_RUN["imgsz"], name=f"dyn_scr_{c}_s{s}",
-                            data="rgb_proxy", extra={"proxy_fraction": SCREEN_RUN["proxy_fraction"]}) for c in cfgs]
-            for j in jobs:
-                j["splits"] = ["train", "val"]
-                j["predict"]["split"] = "val"
-            q[qn] = jobs
+def build():
+    q = {"teacher_rgb1c": [rgb_teacher(f) for f in (0, 1)]}
+    for s in SEEDS:
+        q[f"t4_clean_s{s}"] = [
+            student(c, s, f"dyn_cl_{c}_s{s}", "t4", SCREEN_RUN["epochs"], SCREEN_RUN["imgsz"], "rgb_proxy", "val",
+                    extra={"proxy_fraction": SCREEN_RUN["proxy_fraction"]}) for c in SCREEN]
+        q[f"full_clean_s{s}"] = [
+            student(c, s, f"dyn_full_{c}_s{s}", "local", FULL_RUN["epochs"], FULL_RUN["imgsz"], "rgb", "test")
+            for c in FULL]
     return q
 
 
 def main(argv=None):
-    ap = argparse.ArgumentParser()
-    ap.add_argument("--epochs", type=int, default=40)
-    ap.add_argument("--imgsz", type=int, default=640)
-    a = ap.parse_args(argv)
+    argparse.ArgumentParser().parse_args(argv)
     OUT.mkdir(parents=True, exist_ok=True)
-    for stem, jobs in build(a.epochs, a.imgsz).items():
+    q = build()
+    for f in OUT.glob("*.json"):
+        if f.stem not in q:
+            f.unlink()
+    for stem, jobs in q.items():
         (OUT / f"{stem}.json").write_text(json.dumps(jobs, indent=1))
         print(stem, len(jobs))
 

@@ -1,6 +1,6 @@
 [
  {
-  "name": "dyn_scr_B_s0",
+  "name": "dyn_cl_B_s1",
   "kind": "train",
   "splits": [
    "train",
@@ -16,9 +16,10 @@
    "epochs": 15,
    "imgsz": 704,
    "batch": 32,
-   "seed": 0,
+   "seed": 1,
    "deterministic": false,
    "plots": false,
+   "single_cls": true,
    "data": "rgb_proxy",
    "workers": 2,
    "cache": "disk"
@@ -26,14 +27,14 @@
   "config": {},
   "inputs": {},
   "predict": {
-   "weights": "out/dyn_scr_B_s0/weights/best.pt",
+   "weights": "out/dyn_cl_B_s1/weights/best.pt",
    "split": "val",
    "imgsz": 704
   },
   "proxy_fraction": 0.2
  },
  {
-  "name": "dyn_scr_C_s0",
+  "name": "dyn_cl_P_s1",
   "kind": "train",
   "splits": [
    "train",
@@ -49,9 +50,10 @@
    "epochs": 15,
    "imgsz": 704,
    "batch": 32,
-   "seed": 0,
+   "seed": 1,
    "deterministic": false,
    "plots": false,
+   "single_cls": true,
    "data": "rgb_proxy",
    "workers": 2,
    "cache": "disk"
@@ -59,23 +61,18 @@
   "config": {
    "paired": true,
    "load_ir": false,
-   "ir_only_dir": "auto",
-   "llsa": null,
-   "dnc_lambda": 0.0,
-   "tgd_lambda": 0.0,
-   "ir_soft": 0.3,
-   "ir_soft_dir": "auto"
+   "ir_soft_w_dir": "auto:P"
   },
   "inputs": {},
   "predict": {
-   "weights": "out/dyn_scr_C_s0/weights/best.pt",
+   "weights": "out/dyn_cl_P_s1/weights/best.pt",
    "split": "val",
    "imgsz": 704
   },
   "proxy_fraction": 0.2
  },
  {
-  "name": "dyn_scr_SH_s0",
+  "name": "dyn_cl_I_s1",
   "kind": "train",
   "splits": [
    "train",
@@ -91,9 +88,10 @@
    "epochs": 15,
    "imgsz": 704,
    "batch": 32,
-   "seed": 0,
+   "seed": 1,
    "deterministic": false,
    "plots": false,
+   "single_cls": true,
    "data": "rgb_proxy",
    "workers": 2,
    "cache": "disk"
@@ -101,64 +99,19 @@
   "config": {
    "paired": true,
    "load_ir": false,
-   "ir_only_dir": "auto",
-   "llsa": null,
-   "dnc_lambda": 0.0,
-   "tgd_lambda": 0.0,
-   "ir_soft_w_dir": "auto:SH"
-  },
-  "inputs": {},
-  "predict": {
-   "weights": "out/dyn_scr_SH_s0/weights/best.pt",
-   "split": "val",
-   "imgsz": 704
-  },
-  "proxy_fraction": 0.2
- },
- {
-  "name": "dyn_scr_IG_s0",
-  "kind": "train",
-  "splits": [
-   "train",
-   "val"
-  ],
-  "chunks": [
-   7,
-   null
-  ],
-  "timeout": 0,
-  "train": {
-   "model": "yolo26n.pt",
-   "epochs": 15,
-   "imgsz": 704,
-   "batch": 32,
-   "seed": 0,
-   "deterministic": false,
-   "plots": false,
-   "data": "rgb_proxy",
-   "workers": 2,
-   "cache": "disk"
-  },
-  "config": {
-   "paired": true,
-   "load_ir": false,
-   "ir_only_dir": "auto",
-   "llsa": null,
-   "dnc_lambda": 0.0,
-   "tgd_lambda": 0.0,
-   "ir_soft_w_dir": "auto:IG",
+   "ir_soft_w_dir": "auto:I",
    "ir_ignore": true
   },
   "inputs": {},
   "predict": {
-   "weights": "out/dyn_scr_IG_s0/weights/best.pt",
+   "weights": "out/dyn_cl_I_s1/weights/best.pt",
    "split": "val",
    "imgsz": 704
   },
   "proxy_fraction": 0.2
  },
  {
-  "name": "dyn_scr_SI_s0",
+  "name": "dyn_cl_V_s1",
   "kind": "train",
   "splits": [
    "train",
@@ -174,9 +127,10 @@
    "epochs": 15,
    "imgsz": 704,
    "batch": 32,
-   "seed": 0,
+   "seed": 1,
    "deterministic": false,
    "plots": false,
+   "single_cls": true,
    "data": "rgb_proxy",
    "workers": 2,
    "cache": "disk"
@@ -184,16 +138,51 @@
   "config": {
    "paired": true,
    "load_ir": false,
-   "ir_only_dir": "auto",
-   "llsa": null,
-   "dnc_lambda": 0.0,
-   "tgd_lambda": 0.0,
-   "ir_soft_w_dir": "auto:SI",
+   "ir_soft_w_dir": "auto:V",
    "ir_ignore": true
   },
   "inputs": {},
   "predict": {
-   "weights": "out/dyn_scr_SI_s0/weights/best.pt",
+   "weights": "out/dyn_cl_V_s1/weights/best.pt",
+   "split": "val",
+   "imgsz": 704
+  },
+  "proxy_fraction": 0.2
+ },
+ {
+  "name": "dyn_cl_F_s1",
+  "kind": "train",
+  "splits": [
+   "train",
+   "val"
+  ],
+  "chunks": [
+   7,
+   null
+  ],
+  "timeout": 0,
+  "train": {
+   "model": "yolo26n.pt",
+   "epochs": 15,
+   "imgsz": 704,
+   "batch": 32,
+   "seed": 1,
+   "deterministic": false,
+   "plots": false,
+   "single_cls": true,
+   "data": "rgb_proxy",
+   "workers": 2,
+   "cache": "disk"
+  },
+  "config": {
+   "paired": true,
+   "load_ir": false,
+   "ir_soft_w_dir": "auto:F",
+   "ir_ignore": true
+  },
+  "inputs": {},
+  "predict": {
+   "weights": "out/dyn_cl_F_s1/weights/best.pt",
    "split": "val",
    "imgsz": 704
   },

@@ -113,11 +113,13 @@ def ensure_zdce(splits):
         log("zero-dce++", s, n, "images", round(time.time() - t), "s")
 
 
-def fold_of(k, seed=0):
-    """{train image id: fold 0..k-1}: a seeded random partition of the sorted train ids."""
+def fold_of(k, seed=0, data=None):
+    """{train image id: fold 0..k-1}: a seeded random partition of the sorted train ids under
+    <data>/proc/rgb/train/images (data defaults to DATA)."""
     import numpy as np
 
-    allids = sorted(p.stem for p in (DATA / "proc" / "rgb" / "train" / "images").glob("*.jpg"))
+    root = Path(data) if data is not None else DATA
+    allids = sorted(p.stem for p in (root / "proc" / "rgb" / "train" / "images").glob("*.jpg"))
     perm = np.random.default_rng(seed).permutation(len(allids))
     return {allids[j]: int(i % k) for i, j in enumerate(perm)}
 

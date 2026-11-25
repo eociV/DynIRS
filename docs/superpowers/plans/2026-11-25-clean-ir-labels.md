@@ -1037,5 +1037,8 @@ Report what you see.
 
 - [ ] **Step 5: Hand over for screening.** Give the user the commands:
   - repack the omega package (`python scripts/pack_kaggle.py omega --user <kaggle user>`) and the code package (`python scripts/pack_kaggle.py code --user <kaggle user>`), then upload both;
-  - on Kaggle, run `QUEUE = 'configs/queues/dyn/t4_clean_s0.json'`, then `s1` and `s2`;
+  - on Kaggle, run **only** `QUEUE = 'configs/queues/dyn/t4_clean_s0.json'` first (5 runs, seed 0);
+  - score seed 0 and review it with the user. One seed is directional only (proxy noise is about 1.3 AP), so
+    the table shows means without CIs. Run `t4_clean_s1` and `t4_clean_s2`, and then the full scale, only
+    after the user decides to continue;
   - after the runs come back, score them with `.venv/Scripts/python src/screen_tables.py`.

@@ -1,0 +1,113 @@
+[
+ {
+  "name": "dyn_full_B_s2",
+  "kind": "train",
+  "splits": [
+   "train",
+   "val",
+   "test"
+  ],
+  "chunks": [
+   30,
+   null
+  ],
+  "timeout": 0,
+  "train": {
+   "model": "yolo26n.pt",
+   "epochs": 60,
+   "imgsz": 704,
+   "batch": 32,
+   "seed": 2,
+   "deterministic": false,
+   "plots": false,
+   "single_cls": true,
+   "data": "rgb",
+   "workers": 4,
+   "cache": "disk"
+  },
+  "config": {},
+  "inputs": {},
+  "predict": {
+   "weights": "out/dyn_full_B_s2/weights/best.pt",
+   "split": "test",
+   "imgsz": 704
+  }
+ },
+ {
+  "name": "dyn_full_P_s2",
+  "kind": "train",
+  "splits": [
+   "train",
+   "val",
+   "test"
+  ],
+  "chunks": [
+   30,
+   null
+  ],
+  "timeout": 0,
+  "train": {
+   "model": "yolo26n.pt",
+   "epochs": 60,
+   "imgsz": 704,
+   "batch": 32,
+   "seed": 2,
+   "deterministic": false,
+   "plots": false,
+   "single_cls": true,
+   "data": "rgb",
+   "workers": 4,
+   "cache": "disk"
+  },
+  "config": {
+   "paired": true,
+   "load_ir": false,
+   "ir_soft_w_dir": "auto:P"
+  },
+  "inputs": {},
+  "predict": {
+   "weights": "out/dyn_full_P_s2/weights/best.pt",
+   "split": "test",
+   "imgsz": 704
+  }
+ },
+ {
+  "name": "dyn_full_F_s2",
+  "kind": "train",
+  "splits": [
+   "train",
+   "val",
+   "test"
+  ],
+  "chunks": [
+   30,
+   null
+  ],
+  "timeout": 0,
+  "train": {
+   "model": "yolo26n.pt",
+   "epochs": 60,
+   "imgsz": 704,
+   "batch": 32,
+   "seed": 2,
+   "deterministic": false,
+   "plots": false,
+   "single_cls": true,
+   "data": "rgb",
+   "workers": 4,
+   "cache": "disk"
+  },
+  "config": {
+   "paired": true,
+   "load_ir": false,
+   "ir_soft_w_dir": "auto:F",
+   "ir_ignore": true
+  },
+  "inputs": {},
+  "predict": {
+   "weights": "out/dyn_full_F_s2/weights/best.pt",
+   "split": "test",
+   "imgsz": 704
+  }
+ }
+]

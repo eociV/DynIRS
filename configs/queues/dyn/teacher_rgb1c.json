@@ -1,6 +1,6 @@
 [
  {
-  "name": "dyn_teacher_rgb26l_f0",
+  "name": "dyn_teacher_rgb1c_f0",
   "kind": "train",
   "splits": [
    "train",
@@ -26,6 +26,7 @@
    "seed": 0,
    "deterministic": false,
    "plots": false,
+   "single_cls": true,
    "data": "rgb_proxy",
    "workers": 4,
    "cache": "disk"
@@ -34,19 +35,19 @@
   "inputs": {},
   "predict": [
    {
-    "weights": "out/dyn_teacher_rgb26l_f0/weights/best.pt",
+    "weights": "out/dyn_teacher_rgb1c_f0/weights/best.pt",
     "split": "train",
     "imgsz": 640
    },
    {
-    "weights": "out/dyn_teacher_rgb26l_f0/weights/best.pt",
+    "weights": "out/dyn_teacher_rgb1c_f0/weights/best.pt",
     "split": "val",
     "imgsz": 640
    }
   ]
  },
  {
-  "name": "dyn_teacher_rgb26l_f1",
+  "name": "dyn_teacher_rgb1c_f1",
   "kind": "train",
   "splits": [
    "train",
@@ -72,6 +73,7 @@
    "seed": 0,
    "deterministic": false,
    "plots": false,
+   "single_cls": true,
    "data": "rgb_proxy",
    "workers": 4,
    "cache": "disk"
@@ -80,12 +82,12 @@
   "inputs": {},
   "predict": [
    {
-    "weights": "out/dyn_teacher_rgb26l_f1/weights/best.pt",
+    "weights": "out/dyn_teacher_rgb1c_f1/weights/best.pt",
     "split": "train",
     "imgsz": 640
    },
    {
-    "weights": "out/dyn_teacher_rgb26l_f1/weights/best.pt",
+    "weights": "out/dyn_teacher_rgb1c_f1/weights/best.pt",
     "split": "val",
     "imgsz": 640
    }

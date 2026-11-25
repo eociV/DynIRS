@@ -1,6 +1,6 @@
 [
  {
-  "name": "dyn_smoke_26n_TL",
+  "name": "dyn_full_B_s0",
   "kind": "train",
   "splits": [
    "train",
@@ -8,40 +8,33 @@
    "test"
   ],
   "chunks": [
+   30,
    null
   ],
   "timeout": 0,
   "train": {
    "model": "yolo26n.pt",
-   "epochs": 1,
-   "imgsz": 640,
+   "epochs": 60,
+   "imgsz": 704,
    "batch": 32,
    "seed": 0,
    "deterministic": false,
    "plots": false,
-   "data": "rgb_proxy",
+   "single_cls": true,
+   "data": "rgb",
    "workers": 4,
    "cache": "disk"
   },
-  "config": {
-   "paired": true,
-   "load_ir": false,
-   "ir_only_dir": "auto",
-   "llsa": null,
-   "dnc_lambda": 0.0,
-   "tgd_lambda": 0.0,
-   "ir_soft_w_dir": "auto:TL"
-  },
+  "config": {},
   "inputs": {},
   "predict": {
-   "weights": "out/dyn_smoke_26n_TL/weights/best.pt",
+   "weights": "out/dyn_full_B_s0/weights/best.pt",
    "split": "test",
-   "imgsz": 640
-  },
-  "proxy_fraction": 0.012
+   "imgsz": 704
+  }
  },
  {
-  "name": "dyn_smoke_v8n_TL",
+  "name": "dyn_full_P_s0",
   "kind": "train",
   "splits": [
    "train",
@@ -49,40 +42,37 @@
    "test"
   ],
   "chunks": [
+   30,
    null
   ],
   "timeout": 0,
   "train": {
-   "model": "yolov8n.pt",
-   "epochs": 1,
-   "imgsz": 640,
+   "model": "yolo26n.pt",
+   "epochs": 60,
+   "imgsz": 704,
    "batch": 32,
    "seed": 0,
    "deterministic": false,
    "plots": false,
-   "data": "rgb_proxy",
+   "single_cls": true,
+   "data": "rgb",
    "workers": 4,
    "cache": "disk"
   },
   "config": {
    "paired": true,
    "load_ir": false,
-   "ir_only_dir": "auto",
-   "llsa": null,
-   "dnc_lambda": 0.0,
-   "tgd_lambda": 0.0,
-   "ir_soft_w_dir": "auto:TL"
+   "ir_soft_w_dir": "auto:P"
   },
   "inputs": {},
   "predict": {
-   "weights": "out/dyn_smoke_v8n_TL/weights/best.pt",
+   "weights": "out/dyn_full_P_s0/weights/best.pt",
    "split": "test",
-   "imgsz": 640
-  },
-  "proxy_fraction": 0.012
+   "imgsz": 704
+  }
  },
  {
-  "name": "dyn_smoke_11n_TL",
+  "name": "dyn_full_F_s0",
   "kind": "train",
   "splits": [
    "train",
@@ -90,36 +80,34 @@
    "test"
   ],
   "chunks": [
+   30,
    null
   ],
   "timeout": 0,
   "train": {
-   "model": "yolo11n.pt",
-   "epochs": 1,
-   "imgsz": 640,
+   "model": "yolo26n.pt",
+   "epochs": 60,
+   "imgsz": 704,
    "batch": 32,
    "seed": 0,
    "deterministic": false,
    "plots": false,
-   "data": "rgb_proxy",
+   "single_cls": true,
+   "data": "rgb",
    "workers": 4,
    "cache": "disk"
   },
   "config": {
    "paired": true,
    "load_ir": false,
-   "ir_only_dir": "auto",
-   "llsa": null,
-   "dnc_lambda": 0.0,
-   "tgd_lambda": 0.0,
-   "ir_soft_w_dir": "auto:TL"
+   "ir_soft_w_dir": "auto:F",
+   "ir_ignore": true
   },
   "inputs": {},
   "predict": {
-   "weights": "out/dyn_smoke_11n_TL/weights/best.pt",
+   "weights": "out/dyn_full_F_s0/weights/best.pt",
    "split": "test",
-   "imgsz": 640
-  },
-  "proxy_fraction": 0.012
+   "imgsz": 704
+  }
  }
 ]
