@@ -40,12 +40,18 @@ def pack_data(proc, out, slug, user):
     return d
 
 
-def pack_omega(proc, out, slug, user):
+CLEAN_VARIANTS = ("P", "I", "V", "F")
+
+
+def pack_omega(proc, out, slug, user, variants=CLEAN_VARIANTS):
+    """The clean-label weight files (src/clean_labels.py) and their stats, for the Kaggle runs."""
     d = _fresh(out, slug)
-    shutil.copytree(Path(proc) / "ironly_w", d / "ironly_w")
+    for v in variants:
+        shutil.copytree(Path(proc) / "ironly_w" / v, d / "ironly_w" / v)
     (d / "stats").mkdir()
-    for f in (Path(proc) / "stats").glob("omega_*.json"):
-        if f.name != "omega_signals.json":
+    for v in variants:
+        f = Path(proc) / "stats" / f"clean_{v}.json"
+        if f.exists():
             shutil.copy2(f, d / "stats" / f.name)
     _meta(d, slug, user)
     return d

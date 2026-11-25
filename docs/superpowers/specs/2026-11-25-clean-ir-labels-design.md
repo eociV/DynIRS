@@ -117,8 +117,8 @@ epochs, 704 px, batch 32, best.pt by validation fitness, scored on test (the ori
   fold-aware teacher scores. CLI: `python src/clean_labels.py --proc <proc> --variants P I V F`.
 - Single class:
   - Every student and teacher job sets the Ultralytics override `single_cls: True`.
-  - `lowlight.IRPairDataset.update_labels_info` sets the class of the injected IR-only boxes to 0 when
-    the dataset is single-class. IGNORE_CLS rows are unchanged.
+  - The injected IR-only rows are already class 0 (clean_labels.py writes class 0), so the loader needs
+    no change; Ultralytics' single_cls maps the RGB labels to 0.
   - `evaluate.Matched` gains a class-agnostic mode (all GT and prediction categories set to 0), which the
     new score table uses.
 - `scripts/make_dyn_queues.py`:

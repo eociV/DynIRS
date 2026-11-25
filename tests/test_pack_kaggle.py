@@ -8,13 +8,13 @@ import pack_kaggle as pk  # noqa: E402
 
 def test_pack_omega_and_code(tmp_path):
     proc = tmp_path / "proc"
-    (proc / "ironly_w" / "T" / "train").mkdir(parents=True)
-    (proc / "ironly_w" / "T" / "train" / "a.txt").write_text("0 0.5 0.5 0.1 0.1 0.3\n")
+    (proc / "ironly_w" / "P" / "train").mkdir(parents=True)
+    (proc / "ironly_w" / "P" / "train" / "a.txt").write_text("0 0.5 0.5 0.1 0.1 0.3\n")
     (proc / "stats").mkdir()
-    (proc / "stats" / "omega_T.json").write_text("{}")
-    out = pk.pack_omega(proc, tmp_path / "out", "dynirs-omega", user="me")
-    assert (out / "ironly_w" / "T" / "train" / "a.txt").exists()
-    assert (out / "stats" / "omega_T.json").exists()
+    (proc / "stats" / "clean_P.json").write_text("{}")
+    out = pk.pack_omega(proc, tmp_path / "out", "dynirs-omega", user="me", variants=("P",))
+    assert (out / "ironly_w" / "P" / "train" / "a.txt").exists()
+    assert (out / "stats" / "clean_P.json").exists()
     meta = json.loads((out / "dataset-metadata.json").read_text())
     assert meta["id"] == "me/dynirs-omega"
     root = tmp_path / "repo"
@@ -34,3 +34,18 @@ def test_pack_code_writes_commit(tmp_path):
     code = pk.pack_code(root, tmp_path / "out", "dynirs-code", user="me")
     assert (code / "COMMIT").read_text().strip() == "unknown"  # tmp repo is not a git checkout
     assert pk.git_commit(pk.ROOT) not in ("", "unknown")
+
+
+def test_pack_omega_only_clean_variants(tmp_path):
+    proc = tmp_path / "proc"
+    for v in ("P", "I", "V", "F", "T"):
+        d = proc / "ironly_w" / v / "train"
+        d.mkdir(parents=True)
+        (d / "a.txt").write_text("0 0.5 0.5 0.1 0.1 0.3\n")
+    (proc / "stats").mkdir()
+    for v in ("P", "I", "V", "F"):
+        (proc / "stats" / f"clean_{v}.json").write_text("{}")
+    (proc / "stats" / "omega_T.json").write_text("{}")
+    d = pk.pack_omega(proc, tmp_path / "out", "dynirs-omega", "someone")
+    assert sorted(p.name for p in (d / "ironly_w").iterdir()) == ["F", "I", "P", "V"]
+    assert sorted(p.name for p in (d / "stats").iterdir()) == [f"clean_{v}.json" for v in ("F", "I", "P", "V")]
