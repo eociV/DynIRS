@@ -1,1 +1,4 @@
 pytest
+kaggle      # scripts/kaggle_auto.py
+fiftyone    # scripts/view_data.py
+mlflow      # dyncv/tracking.py (local only, not needed on Kaggle)

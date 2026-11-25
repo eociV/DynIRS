@@ -67,7 +67,7 @@ any difference comes only from how the weight is redistributed across boxes. Hyp
   DroneVehicle train split.
 - Settings: 640 px, batch 16, 50 epochs. Reduce to 30 epochs if the measured epoch time × 50
   exceeds 12 h.
-- Hardware: the user's RTX 5060 Ti (16 GB). Disk cache (§4b); RAM cache is not possible with 16 GB.
+- Hardware: the RTX 5060 Ti (16 GB) of the teammate who wrote the initial code (not every team member's machine). Disk cache (§4b); RAM cache is not possible with 16 GB.
 - Acceptance check: IR val AP50:95 must be clearly higher than the YOLO26n IR teacher (`t_ir`)
   reported in the original paper (640 px, 60 epochs). The old teacher is not retrained. If the new
   teacher is not better, stop and review with the user.
@@ -101,7 +101,7 @@ configurations of that model is not confounded by hardware.
 
 | Model | Seeds | Runs | Hardware |
 |---|---|---|---|
-| YOLO26n | 0, 1, 2 | 18 (B, M, C, T, TL, S) | user's RTX 5060 Ti |
+| YOLO26n | 0, 1, 2 | 18 (B, M, C, T, TL, S) | teammate's RTX 5060 Ti |
 | YOLOv8n | 0, 1, 2 | 9 (C, T, TL) | T4 (Kaggle / Colab, team accounts) |
 | YOLO11n | 0, 1, 2 | 9 | T4 |
 | **Total** | | **36 students + 1 teacher** | |
@@ -246,3 +246,22 @@ Model selection is unchanged: validation every epoch and `best.pt`, as in the or
 - Teacher scoring its own training boxes: train one YOLO26l teacher first, inspect the spread
   statistics written by `omega.py weights` (std, IQR, fraction within 0.3 ± 0.05, teacher-confidence
   std and fraction ≥ 0.9), then decide whether to switch to 2-fold cross-fitting.
+
+## Amendments (2026-11-24): hardware ownership and the cross-fitted teacher
+
+- "Local GPU" in §3, §4 and §4b means the RTX 5060 Ti of the teammate who wrote the initial code.
+  Other team members do not have that GPU; their runs go to Kaggle (T4) unless stated otherwise.
+- A second, independent teacher setup is added: **5-fold cross-fitting** (`dyncv/`, see
+  `dyncv/README.md`), so that no IR-only box is scored by a teacher that trained on its image.
+  - Folds: the 17,951 IR train images in blocks of 50 consecutive ids, balanced by IR-only box count
+    (`configs/cv/folds_k5_b50_s0.json`). Teacher f trains on the other 4 folds and scores fold f only;
+    validation stays the official IR val split.
+  - Recipe: identical to §3 (YOLO26l, 50 epochs, 640 px, batch 16, seed 0, 10-epoch chunks), except
+    the training ids (about 14,250 per fold) and DataLoader workers 2 (Kaggle T4 profile).
+  - Hardware: Kaggle T4 x2 (one fold per GPU), driven by `python -m dyncv`; data are prepared on
+    Kaggle from the pinned Hugging Face revision and checked against the local label hashes and fold
+    ids. Measured: about 11.2 min per epoch, so about 9.5 h per teacher (about twice the time
+    expected on the RTX 5060 Ti).
+  - Output: weight variants `cv5_T`, `cv5_TL`, `cv5_S` (students use `ir_soft_w_dir: "auto:cv5_T"`),
+    plus a comparison of cross-fitted and in-sample `c_i`. The in-sample teacher and its ω files are
+    unchanged.
