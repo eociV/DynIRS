@@ -37,7 +37,7 @@ def main(argv=None):
     ll.CONFIG.update(jm.resolve_config(dict(paired=True, ir_soft_w_dir=f"auto:{a.variant}", ir_ignore=ignore),
                                        data, ROOT))
     tr = ll.LLTrainer(overrides=dict(model="yolo26n.pt", data=str(data / "rgb.yaml"), imgsz=640, batch=16,
-                                     workers=0, epochs=1, plots=False, device=a.device))  # 0: the check needs no speed, and Windows worker shared memory can fail
+                                     workers=0, epochs=1, plots=False, device=a.device, single_cls=True))  # 0: the check needs no speed, and Windows worker shared memory can fail
     tr._setup_train()
     seen = n_ign = 0
     for i, batch in enumerate(tr.train_loader):

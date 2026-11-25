@@ -1,6 +1,7 @@
 """Clean IR-only labels for single-class RGB training (docs/superpowers/specs/2026-11-25-clean-ir-labels-design.md).
 
   python src/clean_labels.py build --proc data/dronevehicle/proc [--runs runs/remote] [--variants P I V F]
+                                 [--teacher dyn_teacher_rgb26l_f{}]   (5-class teacher: class-agnostic score)
   python src/clean_labels.py sheet --proc data/dronevehicle/proc [--runs runs/remote]
 
 Variants of the IR-only boxes (proc/ironly_cls/train), all written as class 0 to
@@ -128,12 +129,12 @@ def build_variant(variant, boxes, pairs, preds, rgb=None):
     return rows, w, stats
 
 
-def sheet(proc, runs, out):
+def sheet(proc, runs, out, teacher=TEACHER):
     """Sanity sheets for F: taught, ignored by the teacher, ignored by the residual (24 random crops each)."""
     import rgb_teacher_demo as rd
 
     data = Path(proc).parent
-    preds = heldout_preds(runs, data)
+    preds = heldout_preds(runs, data, teacher)
     boxes = {k: v for k, v in om.load_ironly(proc).items() if len(v)}
     pairs = json.loads((Path(proc) / "stats" / "pairs_train.json").read_text())
     rows, w, _ = build_variant("F", boxes, pairs, preds, rgb_boxes(proc))
@@ -160,21 +161,24 @@ def main(argv=None):
     b.add_argument("--proc", required=True)
     b.add_argument("--runs", default=str(ROOT / "runs" / "remote"))
     b.add_argument("--variants", nargs="+", choices=VARIANTS, default=list(VARIANTS))
+    b.add_argument("--teacher", default=TEACHER, help="run name pattern of the 2 fold teachers")
     s = sub.add_parser("sheet")
     s.add_argument("--proc", required=True)
     s.add_argument("--runs", default=str(ROOT / "runs" / "remote"))
     s.add_argument("--out", default=str(ROOT / "runs" / "analysis" / "clean"))
+    s.add_argument("--teacher", default=TEACHER)
     a = ap.parse_args(argv)
     proc = Path(a.proc)
     if a.cmd == "sheet":
-        sheet(proc, a.runs, a.out)
+        sheet(proc, a.runs, a.out, a.teacher)
         return
     boxes = om.load_ironly(proc)
     pairs = json.loads((proc / "stats" / "pairs_train.json").read_text())
-    preds = heldout_preds(a.runs, proc.parent) if set(a.variants) & {"V", "F"} else {}
+    preds = heldout_preds(a.runs, proc.parent, a.teacher) if set(a.variants) & {"V", "F"} else {}
     rgb = rgb_boxes(proc)
     for v in a.variants:
         rows, w, st = build_variant(v, boxes, pairs, preds, rgb)
+        st["teacher"] = a.teacher if v in ("V", "F") else None
         d = proc / "ironly_w" / v / "train"  # write_weights does not empty it: drop a previous build
         if d.is_dir():
             for f in d.glob("*.txt"):
