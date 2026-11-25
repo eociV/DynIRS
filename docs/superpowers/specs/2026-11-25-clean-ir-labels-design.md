@@ -54,7 +54,7 @@ classes are mapped to 0 ("vehicle").
 | Step | Rule |
 |---|---|
 | ① Registration | For an image with ≥ 3 matched pairs, d = median over pairs of (IR centre − RGB centre). The IR-only boxes are moved by −d and clipped to the image. Images with < 3 pairs are not moved. |
-| ② Misaligned images | Residual r = median over pairs of ‖offset − d‖. If r > 4 px, every IR-only box of the image becomes an ignore region (about 1,100 images, 1,621 boxes). |
+| ② Misaligned images | Residual r = median over pairs of ‖offset − d‖. If r > 4 px, every IR-only box of the image becomes an ignore region (1,093 images exceed 4 px; 319 of them have IR-only boxes, 1,621 boxes in all). |
 | ③ Verification | For each remaining IR-only box (at its moved position), c = highest score of an RGB-teacher detection with IoU ≥ 0.5 to it. The detections come from the fold model that did not train on the image. |
 | ④ Decision | c ≥ 0.5: taught, with ω = c. c < 0.5: ignore region. |
 
@@ -144,8 +144,7 @@ epochs, 704 px, batch 32, best.pt by validation fitness, scored on test (the ori
   - queue contents (names, `single_cls`, config per code).
 - Real-data checks:
   - `scripts/check_wsoft_loader.py` on V and F, which must show both taught and ignore boxes;
-  - pipeline stats compared with the figures in §1 and §2 (residual > 4 px ≈ 1,100 images, moved
-    boxes ≈ 6,000).
+  - pipeline stats compared with the figures in §1 and §2 (319 images and 1,621 boxes ignored by the residual, 6,025 moved boxes).
 - Sanity sheet: 24 random crops each of taught, ignored-by-teacher and ignored-by-residual boxes, for a
   visual check before training.
 
