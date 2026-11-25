@@ -113,3 +113,16 @@ def test_variant_f_drops_boxes_that_land_on_an_rgb_label():
     assert st["n_dropped_rgb_dup"] == 1
     rows, w, st = cl.build_variant("P", boxes, pairs, preds, rgb)  # P keeps the original recipe
     assert w["a"].tolist() == [0.3, 0.3] and st["n_dropped_rgb_dup"] == 0
+
+
+def test_variant_c_keeps_unverified_boxes_taught_like_p():
+    # box 0 on the RGB label (dropped), box 1 verified (omega c), box 2 unseen by the teacher (omega 0.3)
+    boxes = {"a": np.array([_box(0.5, 0.5), _box(0.2, 0.2), _box(0.8, 0.8)]),
+             "b": np.array([_box(0.3, 0.3)])}
+    pairs = {"a": {"offsets": [[6.4, 0]] * 3}, "b": {"offsets": [[0, 0], [20, 0], [-20, 0], [0, 20]]}}
+    rgb = {"a": om.xywhn_to_xyxy(np.array([[0.49, 0.5, 0.1, 0.1]]))}
+    preds = {"a": np.array([_pred_on(_box(0.19, 0.2), 0.9)])}
+    rows, w, st = cl.build_variant("C", boxes, pairs, preds, rgb)
+    assert w["a"].tolist() == pytest.approx([0.0, 0.9, 0.3])
+    assert w["b"].tolist() == [-1.0]  # misaligned image (residual 20 px): ignore region
+    assert st["n_dropped_rgb_dup"] == 1 and st["n_taught"] == 2 and st["n_ignored_residual"] == 1

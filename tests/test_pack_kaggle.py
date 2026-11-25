@@ -38,14 +38,14 @@ def test_pack_code_writes_commit(tmp_path):
 
 def test_pack_omega_only_clean_variants(tmp_path):
     proc = tmp_path / "proc"
-    for v in ("P", "I", "V", "F", "T"):
+    for v in ("P", "I", "V", "F", "C", "T"):
         d = proc / "ironly_w" / v / "train"
         d.mkdir(parents=True)
         (d / "a.txt").write_text("0 0.5 0.5 0.1 0.1 0.3\n")
     (proc / "stats").mkdir()
-    for v in ("P", "I", "V", "F"):
+    for v in ("P", "I", "V", "F", "C"):
         (proc / "stats" / f"clean_{v}.json").write_text("{}")
     (proc / "stats" / "omega_T.json").write_text("{}")
     d = pk.pack_omega(proc, tmp_path / "out", "dynirs-omega", "someone")
-    assert sorted(p.name for p in (d / "ironly_w").iterdir()) == ["F", "I", "P", "V"]
-    assert sorted(p.name for p in (d / "stats").iterdir()) == [f"clean_{v}.json" for v in ("F", "I", "P", "V")]
+    assert sorted(p.name for p in (d / "ironly_w").iterdir()) == ["C", "F", "I", "P", "V"]
+    assert sorted(p.name for p in (d / "stats").iterdir()) == [f"clean_{v}.json" for v in ("C", "F", "I", "P", "V")]

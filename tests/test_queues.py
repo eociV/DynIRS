@@ -8,6 +8,7 @@ import make_dyn_queues as mq  # noqa: E402
 def test_queue_names():
     q = mq.build()
     assert sorted(q) == sorted(["teacher_rgb1c"] + [f"t4_clean_s{s}" for s in (0, 1, 2)]
+                               + [f"t4_cleanC_s{s}" for s in (0, 1, 2)]
                                + [f"full_clean_s{s}" for s in (0, 1, 2)])
 
 
@@ -79,3 +80,11 @@ def test_fold_of_partition(tmp_path):
     assert len(f) == 11 and sorted(set(f.values())) == [0, 1]
     assert abs(list(f.values()).count(0) - list(f.values()).count(1)) <= 1
     assert f == jm.fold_of(2, 0, tmp_path)
+
+
+def test_clean_p_queues():
+    q = mq.build()
+    for s in (0, 1, 2):
+        (j,) = q[f"t4_cleanC_s{s}"]
+        assert j["name"] == f"dyn_cl_C_s{s}" and j["proxy_fraction"] == 0.2 and j["train"]["seed"] == s
+        assert j["config"]["ir_soft_w_dir"] == "auto:C" and j["config"]["ir_ignore"] is True

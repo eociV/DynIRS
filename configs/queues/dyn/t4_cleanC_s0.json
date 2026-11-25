@@ -1,0 +1,41 @@
+[
+ {
+  "name": "dyn_cl_C_s0",
+  "kind": "train",
+  "splits": [
+   "train",
+   "val"
+  ],
+  "chunks": [
+   7,
+   null
+  ],
+  "timeout": 0,
+  "train": {
+   "model": "yolo26n.pt",
+   "epochs": 15,
+   "imgsz": 704,
+   "batch": 32,
+   "seed": 0,
+   "deterministic": false,
+   "plots": false,
+   "single_cls": true,
+   "data": "rgb_proxy",
+   "workers": 2,
+   "cache": "disk"
+  },
+  "config": {
+   "paired": true,
+   "load_ir": false,
+   "ir_soft_w_dir": "auto:C",
+   "ir_ignore": true
+  },
+  "inputs": {},
+  "predict": {
+   "weights": "out/dyn_cl_C_s0/weights/best.pt",
+   "split": "val",
+   "imgsz": 704
+  },
+  "proxy_fraction": 0.2
+ }
+]

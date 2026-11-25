@@ -17,6 +17,8 @@ proc/ironly_w/<variant>/train/<id>.txt ("0 cx cy w h omega"; omega -1 = ignore r
      4 decision: c >= TAU taught with omega c, else ignored
      V and F drop (omega 0, not written) any box with IoU >= DUP_IOU to an RGB label: after registration
      a misregistered duplicate lands on its RGB-labelled vehicle, which needs no second label
+  C  "clean P": steps 1-2 and the duplicate drop of F, but every other box stays taught as in P:
+     omega = c if c >= TAU else P_OMEGA (added after screening: ignoring the unverified boxes lost to P)
 The teacher is cross-fitted (dyn_teacher_rgb1c_f{0,1}): a train image is scored by the fold model that
 did not train on it (job_main.fold_of, 2 folds, seed 0). Stats: proc/stats/clean_<variant>.json.
 """
@@ -40,7 +42,8 @@ TAU = 0.5
 P_OMEGA = 0.3
 IGNORE = -1.0
 DUP_IOU = 0.3  # an IR-only box (moved or not) on an RGB label is that labelled vehicle: dropped in V and F
-VARIANTS = ("P", "I", "V", "F")
+VARIANTS = ("P", "I", "V", "F", "C")
+CHECKED = ("V", "F", "C")  # variants that use the teacher and drop RGB duplicates
 TEACHER = "dyn_teacher_rgb1c_f{}"
 
 
@@ -91,7 +94,7 @@ def build_variant(variant, boxes, pairs, preds, rgb=None):
     labelled vehicle (typically a misregistered duplicate), so it is not written."""
     if variant not in VARIANTS:
         raise ValueError(variant)
-    move = variant == "F"
+    move = variant in ("F", "C")
     sh = om.image_shifts(pairs, MIN_PAIRS) if move else {}
     res = residuals(pairs) if move else {}
     rows, w = {}, {}
@@ -110,9 +113,12 @@ def build_variant(variant, boxes, pairs, preds, rgb=None):
             x = np.full(len(b), IGNORE)
             n_res += len(b)
             n_res_img += bool(len(b))
+        elif variant == "C":
+            c = _conf(b, preds.get(k))
+            x = np.where(c >= TAU, c, P_OMEGA)
         else:
             x = decide(_conf(b, preds.get(k)))
-        if variant in ("V", "F") and rgb is not None and len(b) and len(rgb.get(k, ())):
+        if variant in CHECKED and rgb is not None and len(b) and len(rgb.get(k, ())):
             dup = iou_matrix(om.xywhn_to_xyxy(b[:, 1:5]), rgb[k]).max(1) >= DUP_IOU
             x = np.where(dup, 0.0, x)
             n_dup += int(dup.sum())
@@ -174,11 +180,11 @@ def main(argv=None):
         return
     boxes = om.load_ironly(proc)
     pairs = json.loads((proc / "stats" / "pairs_train.json").read_text())
-    preds = heldout_preds(a.runs, proc.parent, a.teacher) if set(a.variants) & {"V", "F"} else {}
+    preds = heldout_preds(a.runs, proc.parent, a.teacher) if set(a.variants) & set(CHECKED) else {}
     rgb = rgb_boxes(proc)
     for v in a.variants:
         rows, w, st = build_variant(v, boxes, pairs, preds, rgb)
-        st["teacher"] = a.teacher if v in ("V", "F") else None
+        st["teacher"] = a.teacher if v in CHECKED else None
         d = proc / "ironly_w" / v / "train"  # write_weights does not empty it: drop a previous build
         if d.is_dir():
             for f in d.glob("*.txt"):

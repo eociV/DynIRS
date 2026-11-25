@@ -8,7 +8,8 @@ Queues (every job single class, Ultralytics single_cls):
   t4_clean_s<seed>    screening B, P, I, V, F: YOLO26n, fixed 20 % train subset, 15 epochs, 704 px, val
   full_clean_s<seed>  full scale FULL: YOLO26n, 100 % train, 60 epochs, 704 px, test (local GPU)
 Configs: B no IR-only boxes; P all with omega 0.3; I all as ignore regions; V RGB-teacher verified
-(c >= 0.5 taught with omega c, else ignored); F registration + misalignment filter + V. Their weight
+(c >= 0.5 taught with omega c, else ignored); F registration + misalignment filter + V; C
+(t4_cleanC) registration + misalignment filter + duplicate drop, the rest taught as in P. Their weight
 files come from src/clean_labels.py. Regenerating deletes every other queue file in configs/queues/dyn.
 """
 import argparse
@@ -24,7 +25,9 @@ CONFIGS = {
     "I": dict(PAIRED, ir_soft_w_dir="auto:I", ir_ignore=True),
     "V": dict(PAIRED, ir_soft_w_dir="auto:V", ir_ignore=True),
     "F": dict(PAIRED, ir_soft_w_dir="auto:F", ir_ignore=True),
+    "C": dict(PAIRED, ir_soft_w_dir="auto:C", ir_ignore=True),  # clean P (ignore only misaligned images)
 }
+SCREEN_C = ("C",)  # second screening round: B and P are reused from t4_clean
 SCREEN = ("B", "P", "I", "V", "F")
 FULL = ("B", "P", "F")  # revised after screening (spec section 5)
 SEEDS = (0, 1, 2)
@@ -65,6 +68,9 @@ def build():
         q[f"t4_clean_s{s}"] = [
             student(c, s, f"dyn_cl_{c}_s{s}", "t4", SCREEN_RUN["epochs"], SCREEN_RUN["imgsz"], "rgb_proxy", "val",
                     extra={"proxy_fraction": SCREEN_RUN["proxy_fraction"]}) for c in SCREEN]
+        q[f"t4_cleanC_s{s}"] = [
+            student(c, s, f"dyn_cl_{c}_s{s}", "t4", SCREEN_RUN["epochs"], SCREEN_RUN["imgsz"], "rgb_proxy", "val",
+                    extra={"proxy_fraction": SCREEN_RUN["proxy_fraction"]}) for c in SCREEN_C]
         q[f"full_clean_s{s}"] = [
             student(c, s, f"dyn_full_{c}_s{s}", "local", FULL_RUN["epochs"], FULL_RUN["imgsz"], "rgb", "test")
             for c in FULL]

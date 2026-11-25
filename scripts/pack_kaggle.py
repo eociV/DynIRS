@@ -40,7 +40,7 @@ def pack_data(proc, out, slug, user):
     return d
 
 
-CLEAN_VARIANTS = ("P", "I", "V", "F")
+CLEAN_VARIANTS = ("P", "I", "V", "F", "C")
 
 
 def pack_omega(proc, out, slug, user, variants=CLEAN_VARIANTS):
