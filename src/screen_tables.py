@@ -1,12 +1,12 @@
-"""Score the omega screening runs (dyn_scr_<cfg>_s<seed>) on the val split and write a table.
+"""Score the screening runs (<prefix><cfg>_s<seed>) on the val split and write a table.
 
-  python src/screen_tables.py
+  python src/screen_tables.py [--prefix dyn_cl_]
 
-Per run: COCO AP50:95 (%) against the RGB and IR labels (all / night images); recall (%) of IR-only
-vehicles at night, and over all images by box type (src/boxtypes.py: dup, invisible, faint, visible;
-from proc/stats/boxtypes_val.json); night false alarms (detections matching neither annotation).
-Detections count at score >= 0.25 and IoU >= 0.5, class-agnostic. Per config: mean +- SD over seeds,
-and the seed-paired difference to B (no IR labels) and to C (constant omega 0.3).
+Single-class study: AP is class-agnostic. Per run: COCO AP50:95 (%) against the RGB and IR labels
+(all / night images); recall (%) of IR-only vehicles at night, and over all images by box type
+(src/boxtypes.py, proc/stats/boxtypes_val.json); night false alarms (detections matching neither
+annotation). Detections count at score >= 0.25 and IoU >= 0.5. Per config: mean +- SD over seeds,
+and the seed-paired difference to each reference config.
 """
 import argparse
 import json
@@ -18,10 +18,10 @@ import numpy as np
 HERE = Path(__file__).resolve().parent
 ROOT = HERE.parent
 sys.path.insert(0, str(HERE))
+import boxtypes as bt  # noqa: E402
 import dyn_stats as ds  # noqa: E402
 import evaluate as ev  # noqa: E402
 from dv_pairs import iou_matrix  # noqa: E402
-import boxtypes as bt  # noqa: E402
 from omega import xywhn_to_xyxy  # noqa: E402
 
 D = ROOT / "data" / "dronevehicle" / "proc"
@@ -29,8 +29,10 @@ MAN = ROOT / "splits"
 RUNS = ROOT / "runs" / "remote"
 OUT = ROOT / "runs" / "analysis" / "screen"
 SPLIT = "val"
-CONFIGS = ("B", "C", "ND", "FX", "NI", "SH", "IG", "SI")
-REFS = ("B", "C")
+PREFIX = "dyn_cl_"
+CONFIGS = ("B", "P", "I", "V", "F")
+REFS = ("B", "P")
+SEEDS = (0, 1, 2)
 THR, IOU = 0.25, 0.5
 KEYS = (["rgb_all", "rgb_night", "ir_all", "ir_night", "ironly_rec_night"] + [f"rec_{t}" for t in bt.TYPES]
         + ["false_alarms"])
@@ -51,7 +53,6 @@ def ironly_boxes():
 
 
 def recalls(dets, ironly, nights):
-    """{"ironly_rec_night": %, "rec_<type>": %} from {image id: detections xyxy}."""
     hit, ty, night = [], [], []
     for k, (g, t) in ironly.items():
         p = dets.get(k)
@@ -70,8 +71,7 @@ def false_alarms(dets, nights):
     for k, p in dets.items():
         if k not in nights:
             continue
-        g = [np.array([b[1:] for b in gt.get(k, [])], float).reshape(-1, 4) for gt in gts]
-        g = np.concatenate(g)
+        g = np.concatenate([np.array([b[1:] for b in gt.get(k, [])], float).reshape(-1, 4) for gt in gts])
         n += len(p) if not len(g) else int((iou_matrix(p, g).max(1) < IOU).sum())
     return n
 
@@ -80,7 +80,7 @@ def score(path, nights, ironly):
     preds = json.loads(Path(path).read_text())
     r = {}
     for lab in ("rgb", "ir"):
-        m = ev.Matched(D / lab / SPLIT / "boxes.json", preds)
+        m = ev.Matched(D / lab / SPLIT / "boxes.json", preds, agnostic=True)
         r[f"{lab}_all"] = 100 * m.ap(np.ones(len(m.ids)))
         r[f"{lab}_night"] = 100 * m.ap(ev.subset_weights(m.ids, sorted(nights)))
         del m
@@ -94,36 +94,25 @@ def score(path, nights, ironly):
     return r
 
 
-def main(argv=None):
-    argparse.ArgumentParser().parse_args(argv)
-    OUT.mkdir(parents=True, exist_ok=True)
-    nights = night_ids()
-    ironly = ironly_boxes()
-    cache = OUT / "scores.json"
-    scores = json.loads(cache.read_text()) if cache.exists() else {}
-    for p in sorted(RUNS.glob(f"dyn_scr_*/ws/out/*/preds_{SPLIT}.json")):
-        n, mt = p.parent.name, p.stat().st_mtime
-        if scores.get(n, {}).get("_mtime") != mt:
-            scores[n] = dict(score(p, nights, ironly), _mtime=mt)
-            cache.write_text(json.dumps(scores))
-            print(n, {k: round(v, 2) for k, v in scores[n].items() if k[0] != "_"}, flush=True)
-    n = {t: sum(x.count(t) for _, x in ironly.values()) for t in bt.TYPES}
-    lines = [f"# Omega screening ({SPLIT} split; AP50:95 %, recall %, false alarms = count)", "",
-             "IR-only vehicles by type (all images): " + ", ".join(f"{t} {c}" for t, c in n.items()) + ".", "",
-             "| config | n | " + " | ".join(KEYS) + " |", "|---" * (len(KEYS) + 2) + "|"]
-    runs = {c: [f"dyn_scr_{c}_s{s}" for s in (0, 1, 2) if f"dyn_scr_{c}_s{s}" in scores] for c in CONFIGS}
+def table_lines(scores, n_types, prefix=PREFIX, configs=CONFIGS, refs=REFS):
+    lines = [f"# Screening ({SPLIT} split; class-agnostic AP50:95 %, recall %, false alarms = count)", "",
+             "IR-only vehicles by type (all images): " + ", ".join(f"{t} {c}" for t, c in n_types.items()) + ".",
+             "", "| config | n | " + " | ".join(KEYS) + " |", "|---" * (len(KEYS) + 2) + "|"]
+    runs = {c: [f"{prefix}{c}_s{s}" for s in SEEDS if f"{prefix}{c}_s{s}" in scores] for c in configs}
     for c, names in runs.items():
         if names:
-            cells = [f"{np.mean([scores[n][k] for n in names]):.2f} ± {np.std([scores[n][k] for n in names], ddof=1) if len(names) > 1 else 0:.2f}"
-                     for k in KEYS]
+            cells = []
+            for k in KEYS:
+                v = [scores[n][k] for n in names]
+                cells.append(f"{np.mean(v):.2f} ± {np.std(v, ddof=1) if len(v) > 1 else 0:.2f}")
             lines.append(f"| {c} | {len(names)} | " + " | ".join(cells) + " |")
-    for ref in REFS:
+    for ref in refs:
         lines += ["", f"## Seed-paired differences to {ref} (mean [t 95 % CI], n seeds)", "",
                   "| config | " + " | ".join(KEYS) + " |", "|---" * (len(KEYS) + 1) + "|"]
-        for c in CONFIGS:
+        for c in configs:
             if c == ref:
                 continue
-            pairs = [(f"dyn_scr_{c}_s{s}", f"dyn_scr_{ref}_s{s}") for s in (0, 1, 2)]
+            pairs = [(f"{prefix}{c}_s{s}", f"{prefix}{ref}_s{s}") for s in SEEDS]
             pairs = [(a, b) for a, b in pairs if a in scores and b in scores]
             if len(pairs) < 2:
                 continue
@@ -132,8 +121,28 @@ def main(argv=None):
                 t = ds.paired_t([scores[a][k] - scores[b][k] for a, b in pairs])
                 cells.append(f"{t['mean']:+.2f} [{t['t_ci'][0]:+.2f}, {t['t_ci'][1]:+.2f}] n={t['n']}")
             lines.append(f"| {c} | " + " | ".join(cells) + " |")
-    (OUT / "tables.md").write_text("\n".join(lines) + "\n", encoding="utf-8")
-    print("wrote", OUT / "tables.md")
+    return lines
+
+
+def main(argv=None):
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--prefix", default=PREFIX)
+    a = ap.parse_args(argv)
+    OUT.mkdir(parents=True, exist_ok=True)
+    nights = night_ids()
+    ironly = ironly_boxes()
+    cache = OUT / f"scores_{a.prefix.strip('_')}.json"
+    scores = json.loads(cache.read_text()) if cache.exists() else {}
+    for p in sorted(RUNS.glob(f"{a.prefix}*/ws/out/*/preds_{SPLIT}.json")):
+        n, mt = p.parent.name, p.stat().st_mtime
+        if scores.get(n, {}).get("_mtime") != mt:
+            scores[n] = dict(score(p, nights, ironly), _mtime=mt)
+            cache.write_text(json.dumps(scores))
+            print(n, {k: round(v, 2) for k, v in scores[n].items() if k[0] != "_"}, flush=True)
+    n_types = {t: sum(x.count(t) for _, x in ironly.values()) for t in bt.TYPES}
+    dst = OUT / f"tables_{a.prefix.strip('_')}.md"
+    dst.write_text("\n".join(table_lines(scores, n_types, a.prefix)) + "\n", encoding="utf-8")
+    print("wrote", dst)
 
 
 if __name__ == "__main__":
