@@ -126,3 +126,16 @@ def test_variant_c_keeps_unverified_boxes_taught_like_p():
     assert w["a"].tolist() == pytest.approx([0.0, 0.9, 0.3])
     assert w["b"].tolist() == [-1.0]  # misaligned image (residual 20 px): ignore region
     assert st["n_dropped_rgb_dup"] == 1 and st["n_taught"] == 2 and st["n_ignored_residual"] == 1
+
+
+def test_variant_c_conf_out_aligned_with_written_rows():
+    boxes = {"a": np.array([_box(0.5, 0.5), _box(0.2, 0.2), _box(0.8, 0.8)])}
+    pairs = {"a": {"offsets": [[6.4, 0]] * 3}}
+    rgb = {"a": om.xywhn_to_xyxy(np.array([[0.49, 0.5, 0.1, 0.1]]))}
+    preds = {"a": np.array([_pred_on(_box(0.19, 0.2), 0.9)])}
+    conf = {}
+    rows, w, _ = cl.build_variant("C", boxes, pairs, preds, rgb, conf_out=conf)
+    assert conf["a"].tolist() == pytest.approx([0.0, 0.9, 0.0])
+    keep = cl.written_mask(rows["a"], w["a"])
+    assert keep.tolist() == [False, True, True]  # box 0 dropped as an RGB duplicate
+    assert conf["a"][keep].tolist() == pytest.approx([0.9, 0.0])

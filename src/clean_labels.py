@@ -88,7 +88,13 @@ def rgb_boxes(proc, split="train"):
     return {f.stem: bt.read_yolo(f)[:, 1:5] for f in d.glob("*.txt")}
 
 
-def build_variant(variant, boxes, pairs, preds, rgb=None):
+def written_mask(rows_k, w_k):
+    """Rows that omega.write_weights writes (omega != 0 and a positive box size)."""
+    rows_k = np.asarray(rows_k, float).reshape(-1, 5)
+    return (np.asarray(w_k) != 0) & (rows_k[:, 3] > 0) & (rows_k[:, 4] > 0)
+
+
+def build_variant(variant, boxes, pairs, preds, rgb=None, conf_out=None):
     """(rows, weights, stats) for one variant; rows are class-0 normalized "cls cx cy w h".
     In V and F, a box with IoU >= DUP_IOU to an RGB label (rgb: {id: xyxy}) gets weight 0: it is that
     labelled vehicle (typically a misregistered duplicate), so it is not written."""
@@ -102,6 +108,7 @@ def build_variant(variant, boxes, pairs, preds, rgb=None):
     for k, b in boxes.items():
         b = np.array(b, float).reshape(-1, 5)
         b[:, 0] = 0
+        cv = np.zeros(len(b))
         if k in sh:
             b = om.shift_boxes(b, sh[k])
             n_moved += len(b) * (np.hypot(*sh[k]) > 2)
@@ -115,6 +122,7 @@ def build_variant(variant, boxes, pairs, preds, rgb=None):
             n_res_img += bool(len(b))
         elif variant == "C":
             c = _conf(b, preds.get(k))
+            cv = c
             x = np.where(c >= TAU, c, P_OMEGA)
         else:
             x = decide(_conf(b, preds.get(k)))
@@ -122,6 +130,8 @@ def build_variant(variant, boxes, pairs, preds, rgb=None):
             dup = iou_matrix(om.xywhn_to_xyxy(b[:, 1:5]), rgb[k]).max(1) >= DUP_IOU
             x = np.where(dup, 0.0, x)
             n_dup += int(dup.sum())
+        if conf_out is not None:
+            conf_out[k] = np.asarray(cv, float)
         rows[k], w[k] = b, x
     allw = np.concatenate(list(w.values())) if w else np.zeros(0)
     taught = allw[allw > 0]
@@ -183,7 +193,8 @@ def main(argv=None):
     preds = heldout_preds(a.runs, proc.parent, a.teacher) if set(a.variants) & set(CHECKED) else {}
     rgb = rgb_boxes(proc)
     for v in a.variants:
-        rows, w, st = build_variant(v, boxes, pairs, preds, rgb)
+        conf = {}
+        rows, w, st = build_variant(v, boxes, pairs, preds, rgb, conf_out=conf)
         st["teacher"] = a.teacher if v in CHECKED else None
         d = proc / "ironly_w" / v / "train"  # write_weights does not empty it: drop a previous build
         if d.is_dir():
@@ -191,6 +202,9 @@ def main(argv=None):
                 f.unlink()
         om.write_weights(proc, v, rows, w)
         (proc / "stats" / f"clean_{v}.json").write_text(json.dumps(st, indent=1))
+        if v == "C":  # per-box teacher score, aligned with the written rows (src/dyn_omega.py)
+            cj = {k: [round(float(x), 4) for x in conf[k][written_mask(rows[k], w[k])]] for k in rows}
+            (proc / "stats" / "clean_C_conf.json").write_text(json.dumps(cj))
         print(json.dumps(st))
 
 
