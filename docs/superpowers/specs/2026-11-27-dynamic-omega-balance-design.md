@@ -1,7 +1,7 @@
 # Dynamic ω and repeat sampling of IR-only vehicles — design
 
 Date: 2026-11-27
-Status: approved in discussion (2026-11-27); builds on 2026-11-25-clean-ir-labels-design.md (variant C)
+Status: approved in discussion (2026-11-27; runs on the local GPU); builds on 2026-11-25-clean-ir-labels-design.md (variant C)
 
 ## 1. Motivation
 
@@ -26,8 +26,8 @@ Screening of the clean-label study (docs/results/2026-11-25-screening-clean.md, 
 
 | RQ | Question | Comparison |
 |---|---|---|
-| RQ5 | Does repeat sampling of images with learnable IR-only boxes help? | CB − C* |
-| RQ6 | Does the dynamic ω help? | D − C* |
+| RQ5 | Does repeat sampling of images with learnable IR-only boxes help? | CB − C |
+| RQ6 | Does the dynamic ω help? | D − C |
 | RQ7 | Do the two combine? | DB − max(CB, D) |
 
 Metrics, seeds and the screening protocol are those of the clean-label study:
@@ -74,28 +74,19 @@ A configuration counts as better when its night RGB or IR AP is higher with a se
 | Code | Labels | ω update | Repeat |
 |---|---|---|---|
 | B, P, C | existing runs (local GPU) | – | – |
-| C* | C, rerun on Kaggle | – | – |
 | CB | C | – | yes |
 | D | C | stage-wise | – |
 | DB | C | stage-wise | yes |
 
-- C* checks the GPU change (RTX 5060 Ti → T4). The new configs are compared with C*; C − C* is reported.
 - All new configs use `ir_ignore=True`, since ignore regions can appear.
-- Job names: `dyn_cl_<code>_s<seed>`. Queues: `t4_dyn_s<seed>` with C*, CB, D and DB, so 12 runs.
+- Job names: `dyn_cl_<code>_s<seed>`. Queues: `t4_dyn_s<seed>` with CB, D and DB, so 9 runs.
 
-## 5. Kaggle execution
+## 5. Execution (local GPU)
 
-- **Account and token.** The user's Kaggle account, phone-verified for GPU access. The API token `kaggle.json` goes in `C:\Users\admin\.kaggle\`. It is created by the user, or by Claude in the user's logged-in Chrome when the user asks.
-- **Datasets** (private), built with `scripts/pack_kaggle.py` and uploaded with the Kaggle CLI (large files):
-  - `dynirs-dv`: RGB images and labels, IR labels, stats. IR images are left out; they are not needed and leaving them out halves the size.
-  - `dynirs-omega`: the C weights and the per-box teacher score c.
-  - `dynirs-code`: the code.
-- **Notebook.** Created and run by Claude through Claude in Chrome in the user's logged-in browser:
-  - attach the 3 datasets, choose accelerator GPU T4×2, internet on (Ultralytics weights);
-  - run `scripts/kaggle_session.py` with 2 lanes;
-  - commit with "Save & Run All", so the run continues server-side without the tab.
-- **Results.** Downloaded from the notebook output into `runs/remote/` and scored locally with `src/screen_tables.py`.
-- **Estimate (unmeasured on T4).** About 25–30 min per run including two re-scorings, so 12 runs on 2 lanes take about 3 h. That is one session and about 3 of the 30 weekly GPU hours.
+Decided 2026-11-27: everything runs on the local RTX 5060 Ti, the same GPU as B, P and C, so no rerun of C
+is needed and no data upload. Queues run one job at a time with `scripts/run_queue.py`.
+Estimate: the C runs took about 10 min each (measured); with two re-scorings and repeat sampling about
+12–15 min per run, so 9 runs take about 2 h.
 
 ## 6. Code changes
 
@@ -106,10 +97,7 @@ A configuration counts as better when its night RGB or IR AP is higher with a se
 - `src/lowlight.py`: repeat sampling, if Ultralytics drops duplicate list entries.
 - `src/clean_labels.py`: write the per-box teacher score c of variant C (`proc/stats/clean_C_conf.json`).
 - `scripts/make_dyn_queues.py`: queues `t4_dyn_s{0,1,2}`.
-- `scripts/pack_kaggle.py`:
-  - `pack_data` gains an option to leave out the IR images;
-  - `pack_omega` adds the C teacher scores.
-- `src/screen_tables.py`: codes C*, CB, D and DB, plus a column for optimizer steps.
+- `src/screen_tables.py`: codes CB, D and DB, plus a column for optimizer steps.
 
 ## 7. Testing
 
@@ -119,17 +107,14 @@ A configuration counts as better when its night RGB or IR AP is higher with a se
   - per-run weight directories, so two runs never share one;
   - a chunk boundary triggers re-scoring and the next chunk reads the new weights;
   - the queue contents.
-- **Local smoke run** (1 + 1 + 1 epochs, few images) on the local GPU before uploading. It must show:
+- **Local smoke run** (1 + 1 + 1 epochs, few images) on the local GPU before the queues. It must show:
   - two re-scorings with plausible stats;
   - the repeated images counted in the epoch length;
   - a full prediction file.
-- **Before the Kaggle runs:** `scripts/check_wsoft_loader.py` on a stage-2 weight directory.
+- **Before the queues:** `scripts/check_wsoft_loader.py` on a stage-2 weight directory.
 
 ## 8. Risks
 
 - **Memorisation.** If the student memorises taught boxes by epoch 5, s rises for wrong boxes and D over-teaches. Watch the false alarms and the share of raised boxes per stage.
 - **Small effect.** C already matches P. The gains may stay within seed noise at 20 % / 15 epochs. A negative RQ5–RQ7 is reported as such.
-- **Kaggle quirks.**
-  - The accelerator choice and the dataset attachment are UI steps. Claude in Chrome needs the user's logged-in session.
-  - A failed upload or a session limit can delay the runs. The local GPU stays the fallback.
 - **Compute comparability.** Repeat sampling adds steps. CB isolates that effect.
