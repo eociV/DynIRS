@@ -20,21 +20,23 @@ sys.path.insert(0, str(ROOT / "src"))
 def main(argv=None):
     ap = argparse.ArgumentParser()
     ap.add_argument("--variant", default="T")
+    ap.add_argument("--dir", help="weight directory to check instead of auto:<variant>")
     ap.add_argument("--batches", type=int, default=50)
     ap.add_argument("--device", default="", help='e.g. "cpu" while the GPU is busy')
     a = ap.parse_args(argv)
+    wdir = a.dir or f"auto:{a.variant}"
     data = Path(os.environ.get("DV_DATA", ROOT / "data" / "dronevehicle"))
     import job_main as jm
     import lowlight as ll
 
     allowed = set()
-    d = jm.resolve_config(dict(ir_soft_w_dir=f"auto:{a.variant}"), data, ROOT)["ir_soft_w_dir"]
+    d = jm.resolve_config(dict(ir_soft_w_dir=wdir), data, ROOT)["ir_soft_w_dir"]
     for f in Path(d).glob("*.txt"):
         if f.stat().st_size:
             allowed |= set(np.round(np.loadtxt(f, ndmin=2)[:, 5] * 1000).astype(int).tolist())
     ignore = any(x < 0 for x in allowed)  # omega -1: ignore regions
     allowed = {x for x in allowed if x >= 0}
-    ll.CONFIG.update(jm.resolve_config(dict(paired=True, ir_soft_w_dir=f"auto:{a.variant}", ir_ignore=ignore),
+    ll.CONFIG.update(jm.resolve_config(dict(paired=True, ir_soft_w_dir=wdir, ir_ignore=ignore),
                                        data, ROOT))
     tr = ll.LLTrainer(overrides=dict(model="yolo26n.pt", data=str(data / "rgb.yaml"), imgsz=640, batch=16,
                                      workers=0, epochs=1, plots=False, device=a.device, single_cls=True))  # 0: the check needs no speed, and Windows worker shared memory can fail

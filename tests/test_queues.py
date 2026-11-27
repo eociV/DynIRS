@@ -9,6 +9,7 @@ def test_queue_names():
     q = mq.build()
     assert sorted(q) == sorted(["teacher_rgb1c"] + [f"t4_clean_s{s}" for s in (0, 1, 2)]
                                + [f"t4_cleanC_s{s}" for s in (0, 1, 2)]
+                               + [f"t4_dyn_s{s}" for s in (0, 1, 2)]
                                + [f"full_clean_s{s}" for s in (0, 1, 2)])
 
 
@@ -88,3 +89,20 @@ def test_clean_p_queues():
         (j,) = q[f"t4_cleanC_s{s}"]
         assert j["name"] == f"dyn_cl_C_s{s}" and j["proxy_fraction"] == 0.2 and j["train"]["seed"] == s
         assert j["config"]["ir_soft_w_dir"] == "auto:C" and j["config"]["ir_ignore"] is True
+
+
+def test_dyn_queues():
+    q = mq.build()
+    for s in (0, 1, 2):
+        jobs = q[f"t4_dyn_s{s}"]
+        assert [j["name"] for j in jobs] == [f"dyn_cl_{c}_s{s}" for c in ("CB", "D", "DB")]
+        by = {j["name"].split("_")[2]: j for j in jobs}
+        for c, j in by.items():
+            assert j["chunks"] == [5, 10, None] and j["proxy_fraction"] == 0.2 and j["train"]["seed"] == s
+            assert j["train"]["epochs"] == 15 and j["train"]["imgsz"] == 704 and j["train"]["single_cls"]
+            assert j["config"]["ir_soft_w_dir"] == "auto:C" and j["config"]["ir_ignore"] is True
+            d = j["dyn_omega"]
+            assert d["stages"] == [5, 10] and d["conf"] == "clean_C_conf.json"
+        assert (by["CB"]["dyn_omega"]["update"], by["CB"]["dyn_omega"]["repeat"]) == (False, 2)
+        assert (by["D"]["dyn_omega"]["update"], by["D"]["dyn_omega"]["repeat"]) == (True, 1)
+        assert (by["DB"]["dyn_omega"]["update"], by["DB"]["dyn_omega"]["repeat"]) == (True, 2)

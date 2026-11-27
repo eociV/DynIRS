@@ -30,12 +30,12 @@ RUNS = ROOT / "runs" / "remote"
 OUT = ROOT / "runs" / "analysis" / "screen"
 SPLIT = "val"
 PREFIX = "dyn_cl_"
-CONFIGS = ("B", "P", "I", "V", "F", "C")
-REFS = ("B", "P")
+CONFIGS = ("B", "P", "I", "V", "F", "C", "CB", "D", "DB")
+REFS = ("B", "P", "C")
 SEEDS = (0, 1, 2)
 THR, IOU = 0.25, 0.5
 KEYS = (["rgb_all", "rgb_night", "ir_all", "ir_night", "ironly_rec_night"] + [f"rec_{t}" for t in bt.TYPES]
-        + ["false_alarms"])
+        + ["false_alarms", "img_epochs_k"])
 
 
 def night_ids():
@@ -124,6 +124,22 @@ def table_lines(scores, n_types, prefix=PREFIX, configs=CONFIGS, refs=REFS):
     return lines
 
 
+def image_epochs(out):
+    """Training images seen over the run (repeat sampling counted): train_images.jsonl, else subset x epochs."""
+    out = Path(out)
+    f = out / "train_images.jsonl"
+    if f.exists():
+        last = {}
+        for x in f.read_text().splitlines():
+            if x.strip():
+                r = json.loads(x)
+                last[r["from"]] = r  # a restarted chunk appends again: keep the last line per start epoch
+        return int(sum(r["n_images"] * (r["to"] - r["from"]) for r in last.values()))
+    n = len(json.loads((out / "proxy_ids.json").read_text()))
+    epochs = len((out / "results.csv").read_text().splitlines()) - 1
+    return n * epochs
+
+
 def main(argv=None):
     ap = argparse.ArgumentParser()
     ap.add_argument("--prefix", default=PREFIX)
@@ -139,6 +155,8 @@ def main(argv=None):
             scores[n] = dict(score(p, nights, ironly), _mtime=mt)
             cache.write_text(json.dumps(scores))
             print(n, {k: round(v, 2) for k, v in scores[n].items() if k[0] != "_"}, flush=True)
+    for n in scores:  # recomputed every time: cheap, and old cache entries lack it
+        scores[n]["img_epochs_k"] = image_epochs(RUNS / n / "ws" / "out" / n) / 1000
     n_types = {t: sum(x.count(t) for _, x in ironly.values()) for t in bt.TYPES}
     dst = OUT / f"tables_{a.prefix.strip('_')}.md"
     dst.write_text("\n".join(table_lines(scores, n_types, a.prefix)) + "\n", encoding="utf-8")
