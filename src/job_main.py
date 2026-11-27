@@ -147,6 +147,10 @@ def _data_yaml(key, job):
         if rep:
             night = set((WS / rep["ids_file"]).read_text().split())
             ids = ids + [i for i in ids if i in night] * (rep["k"] - 1)
+        dyn_rep = job.get("_repeat")  # {"ids": [...], "k": R}: repeat sampling (dyn_omega)
+        if dyn_rep:
+            keep = set(dyn_rep["ids"])
+            ids = ids + [i for i in ids if i in keep] * (dyn_rep["k"] - 1)
         lst = proc / f"{mod}_train_{job['name']}.txt"
         lst.write_text("".join(f"{proc}/{mod}/train/images/{i}.jpg\n" for i in ids))
         y = DATA / f"{key}_{job['name']}.yaml"
@@ -213,10 +217,80 @@ def hash_omega_dir(d):
     return h.hexdigest()
 
 
+def _epochs_done(last):
+    """Completed epochs recorded in a last.pt (0 without one)."""
+    if not Path(last).exists():
+        return 0
+    import torch
+
+    ep = torch.load(last, map_location="cpu", weights_only=False)["epoch"]
+    return 0 if ep == -1 else ep + 1
+
+
+def _predict_ids(weights, ids, imgsz):
+    """{id: (n, 5) xyxy px + score} of a training checkpoint on RGB train images."""
+    import numpy as np
+    from ultralytics import YOLO
+
+    import lowlight as ll
+
+    weights = Path(weights)
+    student = weights.with_name(weights.stem + "_student.pt")
+    ll.export_student(weights, student)
+    m = YOLO(str(student))
+    root = DATA / "proc" / "rgb" / "train" / "images"
+    out = {}
+    for i in range(0, len(ids), 32):
+        for r in m.predict(source=[str(root / f"{k}.jpg") for k in ids[i:i + 32]], imgsz=imgsz, conf=0.001,
+                           max_det=300, half=True, stream=True, verbose=False):
+            b = r.boxes
+            out[Path(r.path).stem] = np.concatenate([b.xyxy.cpu().numpy(), b.conf.cpu().numpy()[:, None]], 1)
+    return out
+
+
+def dyn_prepare(job, cfg, predict_fn=_predict_ids):
+    """(cfg, repeat) of a job with "dyn_omega" {"stages", "update", "repeat", "conf"} at the start of a chunk.
+    Stage k (k stage boundaries passed) uses out/<name>/omega_dyn/stage<k>, scored once with the run's
+    last.pt from stage k-1 (dyn_omega.rescore); repeat = {"ids", "k"} for _data_yaml, or None."""
+    dyn = job.get("dyn_omega")
+    if not dyn:
+        return cfg, None
+    import dyn_omega as do
+
+    out = WS / "out" / job["name"]
+    last = out / "weights" / "last.pt"
+    k = sum(_epochs_done(last) >= b for b in dyn["stages"])
+    wdir = Path(cfg["ir_soft_w_dir"])
+    if dyn.get("update"):
+        for j in range(1, k + 1):
+            dst = out / "omega_dyn" / f"stage{j}"
+            if not (dst / ".done").exists():
+                if j < k:
+                    raise RuntimeError(f"{dst}: stage {j} was never scored")
+                rows = do.read_dir(wdir)
+                pf = out / "proxy_ids.json"
+                subset = set(json.loads(pf.read_text())) if pf.exists() else set(rows)
+                ids = sorted(i for i, a in rows.items() if i in subset and len(a) and (a[:, 5] >= 0).any())
+                preds = predict_fn(last, ids, job["train"].get("imgsz", 640))
+                s = do.box_scores({i: rows[i] for i in ids}, preds)
+                c = do.load_conf(DATA / "proc" / "stats" / dyn["conf"], rows)
+                new, st = do.rescore(rows, s, c)
+                do.write_dir(dst, new)
+                (dst / "stats.json").write_text(json.dumps(st, indent=1))
+                (dst / ".done").write_text("")
+                log("dyn omega stage", j, json.dumps(st))
+            wdir = dst
+    cfg = dict(cfg, ir_soft_w_dir=str(wdir))
+    rep = {"ids": do.repeat_ids(do.read_dir(wdir)), "k": dyn["repeat"]} if dyn.get("repeat", 1) > 1 else None
+    return cfg, rep
+
+
 def train(job):
     import lowlight as ll
 
     cfg = resolve_config(job.get("config", {}), DATA, WS)
+    cfg, rep = dyn_prepare(job, cfg)
+    job = dict(job, _repeat=rep)
     ll.CONFIG.update(cfg)
     if cfg.get("ir_soft_w_dir"):
         oh = hash_omega_dir(cfg["ir_soft_w_dir"])
@@ -225,6 +299,14 @@ def train(job):
         (WS / "out" / job["name"] / "omega_hash.txt").write_text(oh + "\n")
     over = dict(job["train"])
     over["data"] = _data_yaml(over["data"], job)
+    if job.get("dyn_omega"):  # images per epoch of this chunk (repeat sampling lengthens epochs)
+        lst = DATA / "proc" / f"rgb_train_{job['name']}.txt"
+        n = len(lst.read_text().split()) if lst.exists() else None
+        frm = _epochs_done(WS / "out" / job["name"] / "weights" / "last.pt")
+        to = cfg.get("stop_after_epoch") or job["train"]["epochs"]
+        (WS / "out" / job["name"]).mkdir(parents=True, exist_ok=True)
+        with open(WS / "out" / job["name"] / "train_images.jsonl", "a") as f:
+            f.write(json.dumps({"from": frm, "to": to, "n_images": n}) + "\n")
     out = WS / "out"
     last = out / job["name"] / "weights" / "last.pt"
     if last.exists():
