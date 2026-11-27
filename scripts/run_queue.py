@@ -25,7 +25,8 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 RUNS = ROOT / "runs" / "remote"
-SRC_FILES = ["lowlight.py", "dv_prep.py", "dv_pairs.py", "job_main.py", "zdce.py", "evaluate.py", "dfine_job.py"]
+SRC_FILES = ["lowlight.py", "dv_prep.py", "dv_pairs.py", "job_main.py", "zdce.py", "evaluate.py", "dfine_job.py",
+             "dyn_omega.py"]
 STUB = "import sys\nsys.path.insert(0, 'src')\nimport job_main\njob_main.main('job.json')\n"
 
 
