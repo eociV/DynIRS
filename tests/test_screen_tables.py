@@ -30,3 +30,13 @@ def test_image_epochs(tmp_path):
                                                {"from": 5, "to": 10, "n_images": 120},
                                                {"from": 10, "to": 15, "n_images": 130}]))
     assert stt.image_epochs(b) == 1750
+
+
+def test_ignore_regions_padded_and_dup_excluded():
+    import numpy as np
+    import screen_tables as st
+    ironly = {"a": (np.array([[100.0, 100, 140, 120], [0, 0, 10, 10]]), ["faint", "dup"])}
+    r = st.ignore_regions(ironly)
+    assert list(r) == ["a"] and len(r["a"]) == 1  # dup boxes are RGB-labelled vehicles: not ignored
+    x1, y1, x2, y2 = r["a"][0]
+    assert (x1, y1, x2, y2) == (92.0, 94.0, 148.0, 126.0)  # 4 px + 10 % of the side on each side

@@ -32,6 +32,25 @@ signal on unverifiable IR-only boxes is better than ignoring them. Raising ω fo
 Conclusion: C stays the recommended label set. Neither balancing method is carried to full scale.
 
 
+## Ignore-aware RGB AP (2026-11-29)
+
+rgbI: AP against the RGB labels with every IR-only vehicle except RGB duplicates as a COCO ignore region
+(iscrowd; padded by 4 px + 10 % of its side for the RGB-IR registration error), so a detection on it is
+neither a TP nor an FP (src/screen_tables.py). Means over 3 seeds, night:
+
+| config | rgb_night | rgbI_night | gap |
+|---|---|---|---|
+| B | 47.80 | 48.31 | +0.51 |
+| P | 48.16 | 48.82 | +0.66 |
+| C | 48.13 | 48.82 | +0.69 |
+| CB | 48.37 | 49.04 | +0.67 |
+| D | 47.71 | 48.42 | +0.71 |
+| DB | 48.51 | 49.18 | +0.67 |
+
+- The RGB-label penalty on IR-only detections is real but small: IR-supervised configs gain about 0.15-0.2 AP more than B under rgbI.
+- P − B night: +0.36 [+0.06, +0.67] with rgb, +0.51 [+0.18, +0.84] with rgbI. C − B: +0.51 [−0.28, +1.30]. DB − B: +0.87 [+0.47, +1.28].
+- Rankings against C are unchanged: no config differs from C with a CI excluding 0 under rgbI either.
+
 IR-only vehicles by type (all images): dup 64, invisible 1932, faint 211, visible 107.
 
 | config | n | rgb_all | rgb_night | ir_all | ir_night | ironly_rec_night | rec_dup | rec_invisible | rec_faint | rec_visible | false_alarms | img_epochs_k |

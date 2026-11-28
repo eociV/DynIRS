@@ -28,7 +28,9 @@ REC = np.linspace(0, 1, 101)
 MAXDET = 300
 
 
-def _coco_gt(boxes_json, agnostic=False):
+def _coco_gt(boxes_json, agnostic=False, ignore=None):
+    """ignore: {image id: [[x1, y1, x2, y2], ...]} ignore regions (COCO iscrowd: a detection covered by one,
+    intersection over detection area >= the IoU threshold, is neither a TP nor an FP; class-agnostic only)."""
     g = json.load(open(boxes_json))
     ids = sorted(g["images"])
     classes = ["vehicle"] if agnostic else g["classes"]
@@ -39,6 +41,9 @@ def _coco_gt(boxes_json, agnostic=False):
             anns.append({"id": len(anns) + 1, "image_id": n, "category_id": 1 if agnostic else int(c) + 1,
                          "bbox": [x1, y1, x2 - x1, y2 - y1], "area": (x2 - x1) * (y2 - y1),
                          "iscrowd": 0})
+        for x1, y1, x2, y2 in (ignore or {}).get(k, []):
+            anns.append({"id": len(anns) + 1, "image_id": n, "category_id": 1, "bbox": [x1, y1, x2 - x1, y2 - y1],
+                         "area": (x2 - x1) * (y2 - y1), "iscrowd": 1})
     cats = [{"id": i + 1, "name": c} for i, c in enumerate(classes)]
     coco = COCO()
     coco.dataset = {"images": images, "annotations": anns, "categories": cats}
@@ -50,8 +55,10 @@ def _coco_gt(boxes_json, agnostic=False):
 class Matched:
     """Per-image matching results of one model, ready for weighted accumulation."""
 
-    def __init__(self, boxes_json, preds, area="all", keep_ev=False, agnostic=False):
-        coco, self.ids, self.classes = _coco_gt(boxes_json, agnostic)
+    def __init__(self, boxes_json, preds, area="all", keep_ev=False, agnostic=False, ignore=None):
+        if ignore and not agnostic:
+            raise ValueError("ignore regions are class-agnostic: use agnostic=True")
+        coco, self.ids, self.classes = _coco_gt(boxes_json, agnostic, ignore)
         index = {k: n for n, k in enumerate(self.ids)}
         dets = [{"image_id": index[p["image_id"]], "category_id": 1 if agnostic else int(p["category_id"]) + 1,
                  "bbox": [p["bbox"][0], p["bbox"][1], p["bbox"][2] - p["bbox"][0],
